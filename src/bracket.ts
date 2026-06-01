@@ -11,11 +11,7 @@ function bracketKey(event: CaptureEvent): string {
   return event.sessionId
 }
 
-function projectIdFromPath(projectPath: string): string {
-  return projectPath || 'unknown'
-}
-
-/** Minimal file-level change until Layer 4 tree-sitter supplies symbols. */
+import { projectIdFromPath } from './project.js'
 export function codeChangeFromToolEvent(event: CaptureEvent): CodeChange | null {
   if (event.hook !== 'TOOL' && event.hook !== 'TOOL_FAILED') return null
   const input = event.toolInput
