@@ -4,9 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts",
+    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts",
     "test:store": "npx tsx src/store/store.test.ts",
-    "test:smoke": "npx tsx src/smoke.ts"
+    "test:smoke": "npx tsx src/smoke.ts",
+    "test:bracket": "npx tsx src/bracket.test.ts"
   },
   "keywords": [],
   "author": "",
