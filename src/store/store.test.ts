@@ -29,8 +29,6 @@ function main(): void {
       sig: 'a'.repeat(64),
       parentSig: null,
       promptText: 'fix race condition in payment',
-      intentText: 'fix race condition in payment',
-      segmentIdx: 0,
       sessionId: 'sess-1',
       source: 'claude-code',
       projectId: 'proj-1',

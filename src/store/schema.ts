@@ -8,19 +8,19 @@ import { EMBED_DIM } from '../config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
 PRAGMA foreign_keys = ON;
 PRAGMA user_version = ${SCHEMA_VERSION};
 
+-- The "spine": one row per user message (identity). Pooled context → context_chunk,
+-- code edits → change; both join back on sig. (v2: dropped per-segment intent_text/segment_idx.)
 CREATE TABLE IF NOT EXISTS prompt_sig (
   sig TEXT PRIMARY KEY,
   parent_sig TEXT,
   prompt_text TEXT NOT NULL,
-  intent_text TEXT,
-  segment_idx INTEGER NOT NULL DEFAULT 0,
   session_id TEXT NOT NULL,
   source TEXT NOT NULL,
   project_id TEXT NOT NULL,

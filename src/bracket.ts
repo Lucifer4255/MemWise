@@ -1,6 +1,12 @@
-import { computeSignature, resolveIntentText, worthStoringSegment } from './signature.js'
-import type { Bracket, CaptureEvent, CodeChange, FinalizedSegment, Segment } from './types.js'
+import { computeMessageSig, worthStoringMessage } from './signature.js'
+import type { Bracket, CaptureEvent, CodeChange, FinalizedMessage, Segment } from './types.js'
 import { createEmptySegment } from './types.js'
+
+const DOC_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.mdx', '.markdown'])
+function isDocFile(path: string): boolean {
+  const dot = path.lastIndexOf('.')
+  return dot !== -1 && DOC_EXTENSIONS.has(path.slice(dot).toLowerCase())
+}
 
 // Key on sessionId ALONE — a session has one active turn at a time (PROMPT→…→Stop is
 // sequential). turnId is NOT reliable across hooks: Claude Code only puts turn_id on
@@ -12,8 +18,13 @@ function bracketKey(event: CaptureEvent): string {
 }
 
 import { projectIdFromPath } from './project.js'
+
+// Read-only tools must not produce CodeChange rows — they contribute to touchedFiles only.
+const READONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'List'])
+
 export function codeChangeFromToolEvent(event: CaptureEvent): CodeChange | null {
   if (event.hook !== 'TOOL' && event.hook !== 'TOOL_FAILED') return null
+  if (READONLY_TOOLS.has(event.toolName ?? '')) return null
   const input = event.toolInput
   if (!input) return null
 
@@ -57,25 +68,25 @@ export class BracketManager {
   /** Last stored sig in this manager (session-global fallback for text-only segments). */
   private lastStoredSig: string | null = null
 
-  handle(event: CaptureEvent): FinalizedSegment[] {
+  handle(event: CaptureEvent): FinalizedMessage | null {
     switch (event.hook) {
       case 'PROMPT':
         this.openBracket(event)
-        return []
+        return null
       case 'NARRATION':
         this.handleNarration(event)
-        return []
+        return null
       case 'TOOL':
       case 'TOOL_FAILED':
         this.handleTool(event)
-        return []
+        return null
       case 'TOOL_BATCH':
         this.handleToolBatch()
-        return []
+        return null
       case 'TURN_END':
         return this.closeBracket(event)
       default:
-        return []
+        return null
     }
   }
 
@@ -83,9 +94,25 @@ export class BracketManager {
     return this.open.get(sessionId)
   }
 
+  /** Record a file the agent READ (not wrote) during this turn — used for parent_sig
+   *  resolution so cross-message lineage (e.g. execution reads plan.md → links to M1) wires. */
+  addTouchedFile(event: CaptureEvent): void {
+    const bracket = this.open.get(event.sessionId)
+    if (!bracket) return
+    const input = event.toolInput
+    if (!input) return
+    const file =
+      (typeof input.file_path === 'string' && input.file_path) ||
+      (typeof input.path === 'string' && input.path) ||
+      null
+    if (file && !bracket.touchedFiles.includes(file)) {
+      bracket.touchedFiles.push(file)
+    }
+  }
+
   private openBracket(event: CaptureEvent): void {
     const key = bracketKey(event)
-    const segment = createEmptySegment(0)
+    const segment = createEmptySegment()
     if (event.message?.trim()) {
       this.pendingIntent = event.message.trim()
       segment.intentText = this.pendingIntent
@@ -99,6 +126,7 @@ export class BracketManager {
       projectId: projectIdFromPath(event.projectPath),
       source: event.source,
       tsOpen: event.ts,
+      touchedFiles: [],
     })
   }
 
@@ -142,6 +170,15 @@ export class BracketManager {
     }
 
     segment.codeChanges.push(change)
+
+    // Doc files: fold content into messageChunks so it becomes part of the parent's contextText.
+    if (isDocFile(change.file) && event.toolInput) {
+      const content =
+        (typeof event.toolInput.content === 'string' && event.toolInput.content) ||
+        (typeof event.toolInput.new_string === 'string' && event.toolInput.new_string) ||
+        null
+      if (content?.trim()) this.pushMessageChunk(segment, content.trim())
+    }
   }
 
   private handleToolBatch(): void {
@@ -153,55 +190,61 @@ export class BracketManager {
     }
   }
 
-  private closeBracket(event: CaptureEvent): FinalizedSegment[] {
+  private closeBracket(event: CaptureEvent): FinalizedMessage | null {
     const bracket = this.open.get(bracketKey(event))
-    if (!bracket) return []
+    if (!bracket) return null
 
-    // TURN_END message (Claude Code Stop.last_assistant_message) or, when the turn-end hook
-    // carries none (Cursor stop), the stashed closing narration from afterAgentResponse.
+    // Closing message: CC Stop.last_assistant_message or Cursor stashed afterAgentResponse.
+    // Append to the last segment so it is pooled into contextText.
     const closingMessage = event.message?.trim() || bracket.closingMessage
     const last = this.currentSegment(bracket)
     if (closingMessage && last) {
-      if (!last.intentText) {
-        last.intentText = closingMessage
-      }
       this.pushMessageChunk(last, closingMessage)
     }
 
-    const results: FinalizedSegment[] = []
-
-    for (let i = 0; i < bracket.segments.length; i++) {
-      const segment = bracket.segments[i]!
-      segment.segmentIdx = i
-
-      if (!segment.intentText && this.pendingIntent) {
-        segment.intentText = this.pendingIntent
-      }
-
-      const worthStore = worthStoringSegment(segment)
-      if (!worthStore) continue
-
-      const files = [...new Set(segment.codeChanges.map(c => c.file))]
-      segment.parentSig = this.resolveParentSig(files)
-      segment.signature = computeSignature(
-        bracket.promptText,
-        segment.segmentIdx,
-        segment.intentText,
-        segment.codeChanges,
-      )
-
-      this.recordStored(segment.signature, files)
-      results.push({ bracket, segment, worthStore: true })
-    }
+    // Pool all segments into one message unit. The user's PROMPT leads the contextText so
+    // the spine vector is anchored on the ask (and a code-only message still gets a vector).
+    const allCodeChanges = bracket.segments.flatMap(s => s.codeChanges)
+    const allChunks = bracket.segments.flatMap(s => s.messageChunks)
+    const parts = [bracket.promptText, ...allChunks].map(s => s.trim()).filter(Boolean)
+    // Cap contextText so a pathological session doesn't produce a 100k-token embedding.
+    const contextText = parts.join('\n\n').slice(0, 6000)
 
     this.open.delete(bracketKey(event))
     this.pendingIntent = null
-    return results
+
+    if (!worthStoringMessage(allCodeChanges, contextText)) return null
+
+    const sig = computeMessageSig(bracket.promptText, allCodeChanges)
+
+    // parentSig: use code-change files ∪ touchedFiles so execution→plan links form
+    // even when the message only creates new files (no prior sig for them in fileToLastSig).
+    const allFiles = [...new Set([
+      ...allCodeChanges.map(c => c.file),
+      ...bracket.touchedFiles,
+    ])]
+    const parentSig = this.resolveParentSig(allFiles)
+
+    // Record only code-change files for future parentSig resolution (not read-only touched).
+    const codeFiles = [...new Set(allCodeChanges.map(c => c.file))]
+    this.recordStored(sig, codeFiles)
+
+    return {
+      sig,
+      parentSig,
+      promptText: bracket.promptText,
+      contextText,
+      codeChanges: allCodeChanges,
+      projectId: bracket.projectId,
+      sessionId: bracket.sessionId,
+      source: bracket.source,
+      tsOpen: bracket.tsOpen,
+      ts: event.ts,
+    }
   }
 
   private startNewSegment(bracket: Bracket, intentText: string | null): void {
-    const nextIdx = bracket.segments.length
-    const segment = createEmptySegment(nextIdx)
+    const segment = createEmptySegment()
     if (intentText?.trim()) {
       segment.intentText = intentText.trim()
       this.pushMessageChunk(segment, intentText.trim())

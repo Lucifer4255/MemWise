@@ -10,32 +10,18 @@ export function serializeEdits(changes: CodeChange[]): string {
   return JSON.stringify(sorted)
 }
 
-/** Focused intent for hashing + embedding; empty narration falls back to promptText. */
-export function resolveIntentText(intentText: string | null | undefined, promptText: string): string {
-  const trimmed = intentText?.trim()
-  if (trimmed) return trimmed
-  return promptText.trim()
-}
-
 /**
- * spec §6.2:
- * sha256(promptText + NUL + segmentIdx + NUL + intentText + NUL + serialize(edits))
+ * Message-level signature — one sig per user prompt (the spine).
+ * INVARIANT: inputs must be raw deterministic values. NEVER pass LLM output here —
+ * the sig is identity; LLM enrichment is a separate, non-hashed content attribute.
+ * sha256(promptText + NUL + serialize(all_edits_in_message))
  */
-export function computeSignature(
-  promptText: string,
-  segmentIdx: number,
-  intentText: string | null | undefined,
-  edits: CodeChange[],
-): string {
-  const intent = resolveIntentText(intentText, promptText)
-  const payload = `${promptText}\x00${segmentIdx}\x00${intent}\x00${serializeEdits(edits)}`
+export function computeMessageSig(promptText: string, codeChanges: CodeChange[]): string {
+  const payload = `${promptText}\x00${serializeEdits(codeChanges)}`
   return createHash('sha256').update(payload, 'utf8').digest('hex')
 }
 
-export function worthStoringSegment(
-  segment: { codeChanges: CodeChange[]; messageChunks: string[]; intentText?: string | null },
-): boolean {
-  if (segment.codeChanges.length > 0) return true
-  const text = (segment.messageChunks.join(' ') || segment.intentText || '').trim()
-  return text.length >= 40
+export function worthStoringMessage(codeChanges: CodeChange[], contextText: string): boolean {
+  if (codeChanges.length > 0) return true
+  return contextText.trim().length >= 40
 }

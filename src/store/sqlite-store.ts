@@ -17,8 +17,6 @@ type PromptSigRow = {
   sig: string
   parent_sig: string | null
   prompt_text: string
-  intent_text: string | null
-  segment_idx: number
   session_id: string
   source: string
   project_id: string
@@ -57,8 +55,6 @@ function rowToPromptSig(row: PromptSigRow): PromptSig {
     sig: row.sig,
     parentSig: row.parent_sig,
     promptText: row.prompt_text,
-    intentText: row.intent_text,
-    segmentIdx: row.segment_idx,
     sessionId: row.session_id,
     source: row.source as Source,
     projectId: row.project_id,
@@ -117,16 +113,13 @@ export class SqliteStore implements MemoryStore {
     this.db
       .prepare(
         `INSERT INTO prompt_sig (
-          sig, parent_sig, prompt_text, intent_text, segment_idx,
-          session_id, source, project_id, ts
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          sig, parent_sig, prompt_text, session_id, source, project_id, ts
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         sig.sig,
         sig.parentSig,
         sig.promptText,
-        sig.intentText,
-        sig.segmentIdx,
         sig.sessionId,
         sig.source,
         sig.projectId,
@@ -137,8 +130,7 @@ export class SqliteStore implements MemoryStore {
   getPromptSig(sig: string): PromptSig | undefined {
     const row = this.db
       .prepare(
-        `SELECT sig, parent_sig, prompt_text, intent_text, segment_idx,
-                session_id, source, project_id, ts
+        `SELECT sig, parent_sig, prompt_text, session_id, source, project_id, ts
          FROM prompt_sig WHERE sig = ?`,
       )
       .get(sig) as PromptSigRow | undefined

@@ -36,10 +36,9 @@ export interface CaptureEvent {
   ts: number
 }
 
+/** Internal turn accumulator. Segments are pooled into ONE FinalizedMessage at close —
+ *  the narration/edit split is bookkeeping during the turn, NOT a persisted unit. */
 export interface Segment {
-  signature: string | null
-  parentSig: string | null
-  segmentIdx: number
   intentText: string | null
   codeChanges: CodeChange[]
   messageChunks: string[]
@@ -53,22 +52,30 @@ export interface Bracket {
   projectId: string
   source: 'claude-code' | 'codex' | 'cursor'
   tsOpen: number
+  // File paths touched by Read/Grep/LS/Glob during this turn — NOT code changes, but used
+  // for parent_sig resolution so execution→plan lineage wires up even when file sets differ.
+  touchedFiles: string[]
   // Turn-final summary stashed from a closing narration (Cursor afterAgentResponse), applied
   // at close when the TURN_END event itself carries no message (Cursor's stop has none).
   closingMessage?: string
 }
 
-export interface FinalizedSegment {
-  bracket: Bracket
-  segment: Segment
-  worthStore: boolean
+/** The single persisted unit per user message — one sig, one context vector, N code-change children. */
+export interface FinalizedMessage {
+  sig: string
+  parentSig: string | null
+  promptText: string
+  contextText: string        // pooled narration + closing summary → ONE embedded string
+  codeChanges: CodeChange[]  // ALL changes across all internal segments
+  projectId: string
+  sessionId: string
+  source: 'claude-code' | 'codex' | 'cursor'
+  tsOpen: number
+  ts: number
 }
 
-export function createEmptySegment(segmentIdx: number): Segment {
+export function createEmptySegment(): Segment {
   return {
-    signature: null,
-    parentSig: null,
-    segmentIdx,
     intentText: null,
     codeChanges: [],
     messageChunks: [],

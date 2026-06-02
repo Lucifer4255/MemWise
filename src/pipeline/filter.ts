@@ -1,11 +1,9 @@
 import type { CaptureEvent } from '../types.js'
 
+// Read/Glob/Grep/LS/List pass through — they feed the bracket's touchedFiles set so
+// cross-message parent_sig lineage (e.g. execution→plan) can wire up via file overlap.
+// Web/notebook/task tools produce no useful signal for code memory, so drop them here.
 const NOISE_TOOLS = new Set([
-  'Read',
-  'Glob',
-  'Grep',
-  'LS',
-  'List',
   'WebSearch',
   'WebFetch',
   'NotebookRead',

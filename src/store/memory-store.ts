@@ -1,11 +1,11 @@
 export type Source = 'claude-code' | 'codex' | 'cursor'
 
+// The "spine" — one row per user message. Identity only; the embeddable pooled
+// context lives on context_chunk, the code edits on `change`. All joined by `sig`.
 export interface PromptSig {
   sig: string
   parentSig: string | null
   promptText: string
-  intentText: string | null
-  segmentIdx: number
   sessionId: string
   source: Source
   projectId: string

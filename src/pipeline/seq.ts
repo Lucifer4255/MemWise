@@ -1,5 +1,5 @@
 import type { CaptureKind } from './classify.js'
-import type { FinalizedSegment } from '../types.js'
+import type { FinalizedMessage } from '../types.js'
 
 export class SeqCounter {
   private readonly counters = new Map<string, number>()
@@ -26,5 +26,5 @@ export interface PipelineResult {
   status: PipelineStatus
   kind?: CaptureKind
   chunkKeys: string[]
-  finalized: FinalizedSegment[]
+  finalized: FinalizedMessage | null
 }

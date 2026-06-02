@@ -83,12 +83,18 @@ async function main(): Promise<void> {
       )
     }
 
-    // filter
+    // filter — Read/Glob/Grep/LS now PASS (feed touchedFiles); WebSearch stays dropped
     const globEvent = evt({
       hook: 'TOOL',
       sessionId: 'filter-test',
       toolName: 'Glob',
       toolInput: { pattern: '**/*' },
+    })
+    const webSearchEvent = evt({
+      hook: 'TOOL',
+      sessionId: 'filter-test',
+      toolName: 'WebSearch',
+      toolInput: { query: 'test' },
     })
     const writeEvent = evt({
       hook: 'TOOL',
@@ -96,10 +102,10 @@ async function main(): Promise<void> {
       toolName: 'Write',
       toolInput: { file_path: 'src/main.ts' },
     })
-    if (shouldCapture(globEvent) || !shouldCapture(writeEvent)) {
-      results.push(fail('filter', 'Glob should drop, Write should pass'))
+    if (!shouldCapture(globEvent) || shouldCapture(webSearchEvent) || !shouldCapture(writeEvent)) {
+      results.push(fail('filter', 'Glob should pass (file_access), WebSearch should drop, Write should pass'))
     } else {
-      results.push(pass('filter', 'Glob dropped, Write passes'))
+      results.push(pass('filter', 'Glob passes (file_access), WebSearch dropped, Write passes'))
     }
 
     // classify
@@ -115,64 +121,43 @@ async function main(): Promise<void> {
       results.push(pass('classify', 'file_path → file_change'))
     }
 
-    // pipeline e2e — 3 distinct events → 3 hashes
+    // pipeline e2e — spine model: ONE chunk at TURN_END only
+    // Mid-turn events (PROMPT/NARRATION/TOOL) → 0 chunks each; TURN_END → 1 pooled chunk
+    // contextText pools: prompt + narration + doc content; code edits → graph only (no vector)
     const pipeline = new CapturePipeline()
     pipeline.seqCounter.reset(sessionId)
 
-    const r1 = await pipeline.process(
-      evt({
-        hook: 'PROMPT',
-        sessionId,
-        message: 'implement checkout flow with payment retries',
-        ts: 1,
-      }),
-    )
-    const r2 = await pipeline.process(
-      evt({
-        hook: 'NARRATION',
-        sessionId,
-        message: 'Adding retry logic to processPayment for webhook overlap',
-        ts: 2,
-      }),
-    )
-    const r3 = await pipeline.process(
-      evt({
-        hook: 'TOOL',
-        sessionId,
-        toolName: 'Edit',
-        toolInput: { file_path: 'src/payment.ts' },
-        ts: 3,
-      }),
-    )
+    await pipeline.process(evt({ hook: 'PROMPT', sessionId, message: 'implement checkout flow with payment retries', ts: 1 }))
+    await pipeline.process(evt({ hook: 'NARRATION', sessionId, message: 'Adding retry logic to processPayment for webhook overlap', ts: 2 }))
+    await pipeline.process(evt({ hook: 'TOOL', sessionId, toolName: 'Edit', toolInput: { file_path: 'src/payment.ts' }, ts: 3 }))
+    await pipeline.process(evt({ hook: 'TOOL', sessionId, toolName: 'Write', toolInput: { file_path: 'docs/plan.md', content: 'Payment retry plan: wrap processPayment with p-limit.' }, ts: 4 }))
+    const rClose = await pipeline.process(evt({ hook: 'TURN_END', sessionId, message: 'Done — payment retries wired.', ts: 5 }))
 
-    const hashKeys = [...r1.chunkKeys, ...r2.chunkKeys, ...r3.chunkKeys]
-    if (hashKeys.length !== 3) {
-      results.push(fail('pipeline 3 chunks', `expected 3 hashes, got ${hashKeys.length}`))
+    // Exactly ONE chunk from TURN_END; contextText includes narration + doc content + closing summary
+    if (rClose.chunkKeys.length !== 1) {
+      results.push(fail('pipeline chunks', `expected 1 chunk at TURN_END, got ${rClose.chunkKeys.length}`))
     } else {
-      let embeddedOk = true
-      for (const key of hashKeys) {
-        const embedded = await redis.hget(key, 'embedded')
-        const hasEmbedding = await redis.hexists(key, 'embedding')
-        if (embedded !== '0' || hasEmbedding) embeddedOk = false
-      }
-      if (!embeddedOk) {
-        results.push(fail('pipeline 3 chunks', 'chunks must have embedded=0 and no embedding field'))
+      const chunk = rClose.chunkKeys[0]!
+      const embedded = await redis.hget(chunk, 'embedded')
+      const hasEmbedding = await redis.hexists(chunk, 'embedding')
+      const ctx = rClose.finalized?.contextText ?? ''
+      if (embedded !== '0' || hasEmbedding) {
+        results.push(fail('pipeline chunks', 'chunk must have embedded=0 and no embedding field'))
+      } else if (!ctx.includes('retry logic') || !ctx.includes('Payment retry plan') || !ctx.includes('payment retries wired')) {
+        results.push(fail('pipeline chunks', `contextText missing content: "${ctx.slice(0, 120)}"...`))
       } else {
-        results.push(pass('pipeline 3 chunks', '3 mw:chunk:* hashes, embedded=0'))
+        results.push(pass('pipeline chunks', 'ONE chunk at TURN_END; contextText pools narration + doc + closing'))
       }
     }
+    await cleanupSession(sessionId)
 
-    // dedup — same event twice → 1 new hash from duplicate pair
-    pipeline.seqCounter.reset(`${sessionId}dedup`)
+    // dedup — same TURN_END event twice → second is duplicate
     const dupSession = `${sessionId}dedup`
-    const dupEvent = evt({
-      hook: 'NARRATION',
-      sessionId: dupSession,
-      message: 'duplicate narration text for dedup testing here',
-      ts: 99,
-    })
-    const d1 = await pipeline.process(dupEvent)
-    const d2 = await pipeline.process({ ...dupEvent, ts: 100 })
+    pipeline.seqCounter.reset(dupSession)
+    await pipeline.process(evt({ hook: 'PROMPT', sessionId: dupSession, message: 'dedup test prompt', ts: 99 }))
+    const turnEndEvent = evt({ hook: 'TURN_END', sessionId: dupSession, message: 'dedup closing summary text here for length', ts: 100 })
+    const d1 = await pipeline.process(turnEndEvent)
+    const d2 = await pipeline.process({ ...turnEndEvent, ts: 101 })
     if (d1.status !== 'ok' || d2.status !== 'duplicate' || d1.chunkKeys.length !== 1) {
       results.push(
         fail('dedup', `first=${d1.status} second=${d2.status} keys=${d1.chunkKeys.length}`),
@@ -209,27 +194,21 @@ async function main(): Promise<void> {
     }
     await cleanupSession(capSession)
 
-    // sig backfill — mid-turn chunks get their segment's signature at TURN_END
+    // message sig — TURN_END pushes ONE chunk with sig already set (no backfill needed)
     const sigSession = `${sessionId}sig`
     const sp = new CapturePipeline()
     sp.seqCounter.reset(sigSession)
     await sp.process(evt({ hook: 'PROMPT', sessionId: sigSession, message: 'fix the payment race condition', ts: 1 }))
-    const nr = await sp.process(
-      evt({ hook: 'NARRATION', sessionId: sigSession, message: 'Adding a mutex to processPayment to fix the race', ts: 2 }),
-    )
-    await sp.process(
-      evt({ hook: 'TOOL', sessionId: sigSession, toolName: 'Edit', toolInput: { file_path: 'src/payment.ts' }, ts: 3 }),
-    )
+    await sp.process(evt({ hook: 'NARRATION', sessionId: sigSession, message: 'Adding a mutex to processPayment to fix the race', ts: 2 }))
+    await sp.process(evt({ hook: 'TOOL', sessionId: sigSession, toolName: 'Edit', toolInput: { file_path: 'src/payment.ts' }, ts: 3 }))
     const close = await sp.process(evt({ hook: 'TURN_END', sessionId: sigSession, message: 'Done — added the mutex.', ts: 4 }))
-    const expectedSig = close.finalized[0]?.segment.signature
-    const narrationKey = nr.chunkKeys[0]
-    const storedSig = narrationKey ? await redis.hget(narrationKey, 'sig') : null
-    if (!expectedSig || !storedSig || storedSig !== expectedSig) {
-      results.push(
-        fail('sig backfill', `mid-turn chunk sig=${storedSig?.slice(0, 8)} expected=${expectedSig?.slice(0, 8)}`),
-      )
+    const msgSig = close.finalized?.sig
+    const msgChunkKey = close.chunkKeys[0]
+    const storedSig = msgChunkKey ? await redis.hget(msgChunkKey, 'sig') : null
+    if (!msgSig || storedSig !== msgSig) {
+      results.push(fail('message sig at close', `chunk sig=${storedSig?.slice(0, 8)} expected=${msgSig?.slice(0, 8)}`))
     } else {
-      results.push(pass('sig backfill', `mid-turn chunk linked to signature ${storedSig.slice(0, 8)}…`))
+      results.push(pass('message sig at close', `chunk carries its message sig at TURN_END, no backfill — ${storedSig.slice(0, 8)}…`))
     }
     await cleanupSession(sigSession)
 
