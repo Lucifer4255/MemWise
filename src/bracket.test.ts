@@ -1,4 +1,4 @@
-import { BracketManager, codeChangeFromToolEvent } from './bracket.js'
+import { BracketManager, codeChangesFromToolEvent } from './bracket.js'
 import { parseClaudeCodeHook, parseCodexHook, parseCursorHook } from './adapters/index.js'
 import {
   computeMessageSig,
@@ -261,8 +261,9 @@ function main(): void {
       file_path: 'src/feature.ts', edits: [{ old_string: '', new_string: 'brand new file' }] },
     ctx,
   )
-  const modChange = cursorMod && codeChangeFromToolEvent(cursorMod)
-  const newChange = cursorNew && codeChangeFromToolEvent(cursorNew)
+  // src/cart.ts / src/feature.ts don't exist on disk → file-level fallback, but changeType still inferred
+  const modChange = cursorMod && codeChangesFromToolEvent(cursorMod).changes[0]
+  const newChange = cursorNew && codeChangesFromToolEvent(cursorNew).changes[0]
   if (modChange?.changeType !== 'modified' || newChange?.changeType !== 'added') {
     results.push(fail('cursor changeType', `mod=${modChange?.changeType}, new=${newChange?.changeType}`))
   } else {

@@ -116,16 +116,18 @@ function main(): void {
       toFile: 'misc.ts',
     })
 
-    const blast = store.queryBlastRadius('processPayment', 'processor.ts', 2)
-    const symbols = blast.map(edge => edge.toSymbol).sort()
-    const expected = ['handleWebhook', 'verifySignature'].sort()
+    // Blast radius = dependents (REVERSE): if verifySignature changes, who is affected?
+    // handleWebhook calls verifySignature → processPayment calls handleWebhook → both affected.
+    const blast = store.queryBlastRadius('verifySignature', 'auth.ts', 2)
+    const affected = blast.map(edge => edge.fromSymbol).sort()
+    const expected = ['handleWebhook', 'processPayment'].sort()
 
-    if (symbols.length !== 2 || symbols.join(',') !== expected.join(',')) {
+    if (affected.length !== 2 || affected.join(',') !== expected.join(',')) {
       results.push(
-        fail('blast-radius CTE', `expected ${expected.join(',')}, got ${symbols.join(',')}`),
+        fail('blast-radius CTE (reverse)', `expected ${expected.join(',')}, got ${affected.join(',')}`),
       )
     } else {
-      results.push(pass('blast-radius CTE', 'depth-2 chain → handleWebhook, verifySignature'))
+      results.push(pass('blast-radius CTE (reverse)', 'change verifySignature → affects handleWebhook, processPayment'))
     }
 
     // queryHybrid: exercise the public RRF path (not raw SQL). Add a second,

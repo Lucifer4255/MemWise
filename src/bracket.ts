@@ -1,3 +1,4 @@
+import { changesFromToolInput, type ResolvedChanges } from './parser/bridge.js'
 import { computeMessageSig, worthStoringMessage } from './signature.js'
 import type { Bracket, CaptureEvent, CodeChange, FinalizedMessage, Segment } from './types.js'
 import { createEmptySegment } from './types.js'
@@ -22,24 +23,23 @@ import { projectIdFromPath } from './project.js'
 // Read-only tools must not produce CodeChange rows — they contribute to touchedFiles only.
 const READONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'List'])
 
-export function codeChangeFromToolEvent(event: CaptureEvent): CodeChange | null {
-  if (event.hook !== 'TOOL' && event.hook !== 'TOOL_FAILED') return null
-  if (READONLY_TOOLS.has(event.toolName ?? '')) return null
+/** Resolve a tool event to its code-change children + dependency edges.
+ *  Returns one CodeChange PER changed symbol (tree-sitter), or a file-level row on any miss. */
+export function codeChangesFromToolEvent(event: CaptureEvent): ResolvedChanges {
+  if (event.hook !== 'TOOL' && event.hook !== 'TOOL_FAILED') return { changes: [], deps: [] }
+  if (READONLY_TOOLS.has(event.toolName ?? '')) return { changes: [], deps: [] }
   const input = event.toolInput
-  if (!input) return null
+  if (!input) return { changes: [], deps: [] }
 
   const filePath =
     (typeof input.file_path === 'string' && input.file_path) ||
     (typeof input.path === 'string' && input.path) ||
     null
 
-  if (!filePath) return null
+  if (!filePath) return { changes: [], deps: [] }
 
-  return {
-    file: filePath,
-    symbol: filePath,
-    changeType: inferChangeType(event),
-  }
+  const changeType = inferChangeType(event)
+  return changesFromToolInput(event.sessionId, filePath, input, changeType, event.projectPath)
 }
 
 function inferChangeType(event: CaptureEvent): CodeChange['changeType'] {
@@ -127,6 +127,7 @@ export class BracketManager {
       source: event.source,
       tsOpen: event.ts,
       touchedFiles: [],
+      symbolDeps: [],
     })
   }
 
@@ -160,8 +161,8 @@ export class BracketManager {
     const bracket = this.open.get(bracketKey(event))
     if (!bracket) return
 
-    const change = codeChangeFromToolEvent(event)
-    if (!change) return
+    const { changes, deps } = codeChangesFromToolEvent(event)
+    if (changes.length === 0) return
 
     const segment = this.currentSegment(bracket)!
     if (!segment.intentText && this.pendingIntent) {
@@ -169,10 +170,12 @@ export class BracketManager {
       this.pushMessageChunk(segment, this.pendingIntent)
     }
 
-    segment.codeChanges.push(change)
+    for (const change of changes) segment.codeChanges.push(change)
+    bracket.symbolDeps.push(...deps)
 
-    // Doc files: fold content into messageChunks so it becomes part of the parent's contextText.
-    if (isDocFile(change.file) && event.toolInput) {
+    // Doc files: fold the written content into messageChunks (embedded, unlike code).
+    const file = changes[0]!.file
+    if (isDocFile(file) && event.toolInput) {
       const content =
         (typeof event.toolInput.content === 'string' && event.toolInput.content) ||
         (typeof event.toolInput.new_string === 'string' && event.toolInput.new_string) ||
@@ -229,12 +232,22 @@ export class BracketManager {
     const codeFiles = [...new Set(allCodeChanges.map(c => c.file))]
     this.recordStored(sig, codeFiles)
 
+    // Dedupe dependency edges accumulated across the turn's edits.
+    const seenDep = new Set<string>()
+    const symbolDeps = bracket.symbolDeps.filter(d => {
+      const k = `${d.fromSymbol}\0${d.fromFile}\0${d.toSymbol}\0${d.toFile}`
+      if (seenDep.has(k)) return false
+      seenDep.add(k)
+      return true
+    })
+
     return {
       sig,
       parentSig,
       promptText: bracket.promptText,
       contextText,
       codeChanges: allCodeChanges,
+      symbolDeps,
       projectId: bracket.projectId,
       sessionId: bracket.sessionId,
       source: bracket.source,

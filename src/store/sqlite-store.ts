@@ -223,18 +223,25 @@ export class SqliteStore implements MemoryStore {
     return rows.map(rowToChange)
   }
 
+  /**
+   * Blast radius = REVERSE traversal: "if `symbol` changes, what is AFFECTED?" Walk the edges that
+   * POINT AT the symbol (its dependents/callers), transitively, depth-bounded. Edges are stored
+   * from=caller → to=callee, so dependents are the `from_symbol`s of matching edges. Matched by
+   * symbol NAME (cross-file `to_file` may be '' when we couldn't fully resolve it — graphify
+   * federation fills that in). Direction per graphify `affected.py` (in-edges, not out-edges).
+   */
   queryBlastRadius(symbol: string, file: string, depth: number = 3): SymbolDep[] {
     const rows = this.db
       .prepare(
         `WITH RECURSIVE blast(from_symbol, from_file, to_symbol, to_file, depth) AS (
            SELECT from_symbol, from_file, to_symbol, to_file, 1
            FROM symbol_dep
-           WHERE from_symbol = ? AND from_file = ?
-           UNION ALL
+           WHERE to_symbol = ? AND (to_file = ? OR to_file = '')
+           UNION
            SELECT sd.from_symbol, sd.from_file, sd.to_symbol, sd.to_file, b.depth + 1
            FROM symbol_dep sd
            INNER JOIN blast b
-             ON sd.from_symbol = b.to_symbol AND sd.from_file = b.to_file
+             ON sd.to_symbol = b.from_symbol
            WHERE b.depth < ?
          )
          SELECT DISTINCT from_symbol, from_file, to_symbol, to_file

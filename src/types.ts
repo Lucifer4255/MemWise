@@ -1,4 +1,5 @@
 export type { Change, ContextChunk, PromptSig, Source, SymbolDep } from './store/memory-store.js'
+import type { SymbolDep } from './store/memory-store.js'
 
 export type HookKind =
   | 'PROMPT'
@@ -55,6 +56,8 @@ export interface Bracket {
   // File paths touched by Read/Grep/LS/Glob during this turn — NOT code changes, but used
   // for parent_sig resolution so execution→plan lineage wires up even when file sets differ.
   touchedFiles: string[]
+  // Dependency edges (call + import) accumulated from tree-sitter across the turn's edits.
+  symbolDeps: SymbolDep[]
   // Turn-final summary stashed from a closing narration (Cursor afterAgentResponse), applied
   // at close when the TURN_END event itself carries no message (Cursor's stop has none).
   closingMessage?: string
@@ -66,7 +69,8 @@ export interface FinalizedMessage {
   parentSig: string | null
   promptText: string
   contextText: string        // pooled narration + closing summary → ONE embedded string
-  codeChanges: CodeChange[]  // ALL changes across all internal segments
+  codeChanges: CodeChange[]  // ALL changes across all internal segments → graph children
+  symbolDeps: SymbolDep[]    // call/import edges → symbol_dep rows (persisted at Layer 5 flush)
   projectId: string
   sessionId: string
   source: 'claude-code' | 'codex' | 'cursor'
