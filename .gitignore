@@ -2,4 +2,5 @@
 node_modules
 memwise-spec.md
 plan.md
-am
+am/
+graphify/

@@ -7,6 +7,8 @@ import {
   HOT_WINDOW_TTL_S,
 } from './config.js'
 
+export type { Redis }
+
 export const CHUNK_PREFIX = 'mw:chunk:'
 export const HOT_ZSET_PREFIX = 'mw:hot:'
 export const HOT_TOKENS_PREFIX = 'mw:hot:tokens:'
@@ -99,6 +101,15 @@ export interface HotChunkInput {
   text: string
   sig?: string
   ts: number
+  // Spine payload — present at TURN_END, absent for bare hot-window pushes (tests/generic callers).
+  finalized?: {
+    promptText: string
+    parentSig: string | null
+    source: string
+    tsOpen: number
+    changesJson: string
+    depsJson: string
+  }
 }
 
 /** Called for each chunk BEFORE it is deleted on eviction — the flush-then-delete seam.
@@ -118,18 +129,30 @@ export async function pushHotChunk(input: HotChunkInput, opts: HotWindowOpts = {
   const zkey = hotZsetKey(input.sessionId)
   const tkey = hotTokensKey(input.sessionId)
 
-  // Atomic: hash + recency ZSET + token counter all land together (or not at all).
+  const hashFields: Record<string, string> = {
+    text: input.text,
+    sig: input.sig ?? '',
+    session: input.sessionId,
+    project: input.projectId,
+    ts: String(input.ts),
+    embedded: '0',
+    tokens: String(tokens),
+    ...(input.finalized
+      ? {
+          prompt_text: input.finalized.promptText,
+          parent_sig: input.finalized.parentSig ?? '',
+          source: input.finalized.source,
+          ts_open: String(input.finalized.tsOpen),
+          changes_json: input.finalized.changesJson,
+          deps_json: input.finalized.depsJson,
+        }
+      : {}),
+  }
+
+  // Atomic: all fields + recency ZSET + token counter land together (or not at all).
   await redis
     .multi()
-    .hset(key, {
-      text: input.text,
-      sig: input.sig ?? '',
-      session: input.sessionId,
-      project: input.projectId,
-      ts: String(input.ts),
-      embedded: '0',
-      tokens: String(tokens), // not in the FT schema — used for DECRBY on evict
-    })
+    .hset(key, hashFields)
     .expire(key, HOT_WINDOW_TTL_S)
     .zadd(zkey, input.ts, String(input.seq))
     .expire(zkey, HOT_WINDOW_TTL_S)
@@ -165,13 +188,99 @@ export async function trimHotWindow(sessionId: string, opts: HotWindowOpts = {})
   }
 }
 
-export async function updateChunkSig(
+/** Write embedding in place — text/sig/session fields unchanged; enables hot KNN. */
+export async function writeChunkEmbedding(
   sessionId: string,
   seq: number,
-  sig: string,
+  embedding: Buffer,
   redis: Redis = getRedis(),
 ): Promise<void> {
-  await redis.hset(chunkKey(sessionId, seq), 'sig', sig)
+  await redis.hset(chunkKey(sessionId, seq), {
+    embedding,
+    embedded: '1',
+  })
+}
+
+export type HotChunkRecord = Record<string, string>
+
+export async function readHotChunk(
+  sessionId: string,
+  seq: number,
+  redis: Redis = getRedis(),
+): Promise<HotChunkRecord | null> {
+  const data = await redis.hgetall(chunkKey(sessionId, seq))
+  if (!data || Object.keys(data).length === 0) return null
+  return data
+}
+
+/**
+ * Read the binary `embedding` field as a Buffer. MUST NOT go through hgetall/hgetall-style
+ * reads: those UTF-8-decode every value, which mangles the raw Float32 bytes (non-ASCII bytes
+ * become U+FFFD and the length stops being 4·DIM). hgetBuffer preserves the bytes verbatim.
+ */
+export async function readChunkEmbedding(
+  sessionId: string,
+  seq: number,
+  redis: Redis = getRedis(),
+): Promise<Buffer | null> {
+  const buf = await redis.hgetBuffer(chunkKey(sessionId, seq), 'embedding')
+  return buf && buf.length > 0 ? buf : null
+}
+
+/** List session ids with a hot-window ZSET (excludes token-counter keys). */
+export async function listHotSessionIds(redis: Redis = getRedis()): Promise<string[]> {
+  const ids: string[] = []
+  let cursor = '0'
+  do {
+    const [next, keys] = (await redis.scan(
+      cursor,
+      'MATCH',
+      `${HOT_ZSET_PREFIX}*`,
+      'COUNT',
+      100,
+    )) as [string, string[]]
+    cursor = next
+    for (const key of keys) {
+      if (key.startsWith(HOT_TOKENS_PREFIX)) continue
+      ids.push(key.slice(HOT_ZSET_PREFIX.length))
+    }
+  } while (cursor !== '0')
+  return ids
+}
+
+/** Latest activity timestamp (ms) for a session's hot window, or null if empty. */
+export async function sessionLastActivityTs(
+  sessionId: string,
+  redis: Redis = getRedis(),
+): Promise<number | null> {
+  const result = await redis.zrevrange(hotZsetKey(sessionId), 0, 0, 'WITHSCORES')
+  if (result.length < 2) return null
+  return Number(result[1])
+}
+
+/** All chunk seqs in a session, oldest first. */
+export async function listHotChunkSeqs(
+  sessionId: string,
+  redis: Redis = getRedis(),
+): Promise<number[]> {
+  const members = await redis.zrange(hotZsetKey(sessionId), 0, -1)
+  return members.map(s => Number(s)).filter(n => !Number.isNaN(n))
+}
+
+/** Remove one chunk from the hot window (after SQLite flush). */
+export async function deleteHotChunk(
+  sessionId: string,
+  seq: number,
+  redis: Redis = getRedis(),
+): Promise<void> {
+  const ckey = chunkKey(sessionId, seq)
+  const chunkTokens = Number((await redis.hget(ckey, 'tokens')) ?? CHUNK_TOKENS_EST)
+  await redis
+    .multi()
+    .del(ckey)
+    .zrem(hotZsetKey(sessionId), String(seq))
+    .decrby(hotTokensKey(sessionId), chunkTokens)
+    .exec()
 }
 
 /** Stable hash for dedup SET (exclude volatile seq/ts). */

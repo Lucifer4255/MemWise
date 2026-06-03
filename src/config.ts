@@ -1,3 +1,6 @@
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 /**
  * Single source of truth for the embedding model + dimension.
  *
@@ -62,3 +65,13 @@ export const REDIS_URL: string = process.env.MEMWISE_REDIS_URL ?? 'redis://local
 
 /** Avg tokens per chunk — used to estimate a chunk's token cost when trimming the window. */
 export const CHUNK_TOKENS_EST: number = Number(process.env.MEMWISE_CHUNK_TOKENS_EST ?? 300)
+
+/** Cold-store path for retrieval / flush (Layer 6). */
+export const MEMWISE_DB_PATH: string =
+  process.env.MEMWISE_DB_PATH ?? join(homedir(), '.memwise', 'memwise.db')
+
+/** Formatter hard cap (spec §12). */
+export const RETRIEVE_MAX_TOKENS: number = Number(process.env.MEMWISE_RETRIEVE_MAX_TOKENS ?? 1500)
+
+/** Per-source candidate count before RRF fusion. */
+export const RETRIEVE_HYBRID_LIMIT: number = Number(process.env.MEMWISE_RETRIEVE_HYBRID_LIMIT ?? 10)

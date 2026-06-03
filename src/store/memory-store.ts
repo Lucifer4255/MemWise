@@ -35,12 +35,25 @@ export interface SymbolDep {
 }
 
 export interface MemoryStore {
+  runTransaction(fn: () => void): void
   insertPromptSig(sig: PromptSig): void
+  insertPromptSigOrIgnore(sig: PromptSig): void
   getPromptSig(sig: string): PromptSig | undefined
   insertChange(change: Change): void
   insertSymbolDep(dep: SymbolDep): void
   insertContextChunk(chunk: ContextChunk, embedding: number[]): void
   queryHybrid(embedding: number[], keywords: string, limit: number): ContextChunk[]
+  queryHybridScoped(
+    projectId: string,
+    embedding: number[],
+    keywords: string,
+    limit: number,
+  ): ContextChunk[]
+  queryRecentChunks(projectId: string, limit: number): ContextChunk[]
+  queryRecentPromptSigs(projectId: string, limit: number): PromptSig[]
+  getChangesForSig(sig: string): Change[]
+  getContextChunkBySig(sig: string): ContextChunk | undefined
+  getParentChain(sig: string, maxDepth: number): PromptSig[]
   queryChangesForSymbol(symbol: string): Change[]
   queryBlastRadius(symbol: string, file: string, depth?: number): SymbolDep[]
 }

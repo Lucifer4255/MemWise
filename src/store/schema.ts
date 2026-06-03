@@ -8,7 +8,7 @@ import { EMBED_DIM } from '../config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
@@ -40,6 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_change_symbol ON change(symbol);
 CREATE INDEX IF NOT EXISTS idx_change_sig ON change(sig);
 -- parentSig resolution (Layer 2 close()) filters change by file → index it
 CREATE INDEX IF NOT EXISTS idx_change_file ON change(file);
+-- A message's edit set is identity: re-flushing the same sig must not duplicate rows.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_change
+  ON change(sig, file, symbol, change_type);
 
 CREATE TABLE IF NOT EXISTS symbol_dep (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +56,9 @@ CREATE INDEX IF NOT EXISTS idx_symbol_dep_from
   ON symbol_dep(from_symbol, from_file);
 CREATE INDEX IF NOT EXISTS idx_symbol_dep_to
   ON symbol_dep(to_symbol, to_file);
+-- The same dependency edge can be rediscovered across messages — store it once.
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_symbol_dep
+  ON symbol_dep(from_symbol, from_file, to_symbol, to_file);
 
 CREATE TABLE IF NOT EXISTS context_chunk (
   id TEXT PRIMARY KEY,
