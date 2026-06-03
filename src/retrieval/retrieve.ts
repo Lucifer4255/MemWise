@@ -69,6 +69,7 @@ export async function retrieve(
   const bundle = expandAnchors({ store, anchors, route: routeResult })
   if (routeResult.mode === 'session') {
     bundle.recentPrompts = store.queryRecentPromptSigs(projectId, hybridLimit)
+    bundle.latestSummary = store.queryLatestSessionSummary(projectId)
   }
   const { block, tokenCount } = formatBundle(bundle, maxTokens)
 

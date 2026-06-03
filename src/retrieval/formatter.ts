@@ -1,6 +1,6 @@
 import { RETRIEVE_MAX_TOKENS } from '../config.js'
 import { estimateTokens } from '../redis.js'
-import type { Change, ContextChunk, PromptSig, SymbolDep } from '../store/memory-store.js'
+import type { Change, ContextChunk, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
 import type { AnchorHit, ContextBundle } from './types.js'
 
 export const EMPTY_BLOCK = '## memwise context\n(no matching memory)'
@@ -87,9 +87,16 @@ interface Section {
   body: string
 }
 
-/** "Last work here" is the daemon's LLM session summary (Layer 8). Until it exists, the
- *  session-recap mode synthesizes the recap from the spine (Working on / Relevant / Why). */
 const LAST_WORK_PLACEHOLDER = '- (no session summary yet — Layer 8 daemon fills this)'
+
+function formatLastWork(summary: SessionSummary | undefined): string[] {
+  if (!summary) return [LAST_WORK_PLACEHOLDER]
+  return summary.summary
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(l => (l.startsWith('-') ? l : `- ${l}`))
+}
 
 function headerFor(mode: ContextBundle['mode']): string {
   return mode === 'session' ? '## memwise — current work' : '## memwise context'
@@ -111,7 +118,7 @@ function buildSectionList(bundle: ContextBundle): { sections: Section[]; trimOrd
     }
   }
 
-  const lastWork: Section = { key: 'lastWork', title: 'Last work here', body: section('Last work here', [LAST_WORK_PLACEHOLDER]) }
+  const lastWork: Section = { key: 'lastWork', title: 'Last work here', body: section('Last work here', formatLastWork(bundle.latestSummary)) }
   return {
     sections: [relevant, why, lastWork, watch],
     trimOrder: ['watch', 'lastWork', 'why', 'relevant'],
@@ -122,7 +129,7 @@ function assemble(header: string, sections: Section[]): string {
   return [header, ...sections.map(s => s.body)].join('\n')
 }
 
-/** Truncate lowest-priority sections first (see buildSectionList trimOrder). */
+/** Truncate lowest-priority sections first, line-by-line (see buildSectionList trimOrder). */
 export function formatBundle(
   bundle: ContextBundle,
   maxTokens: number = RETRIEVE_MAX_TOKENS,
@@ -139,15 +146,34 @@ export function formatBundle(
   const { sections, trimOrder } = buildSectionList(bundle)
   const byKey = new Map(sections.map(s => [s.key, s]))
 
+  // Track each section's content lines separately so we can trim one-by-one.
+  const contentLines = new Map<string, string[]>()
+  for (const sec of sections) {
+    const lines = sec.body.split('\n')
+    contentLines.set(sec.key, lines.slice(1)) // drop `### Title` header line
+  }
+
+  function rebuildBody(sec: Section): string {
+    const lines = contentLines.get(sec.key)!
+    if (lines.length === 0) return `### ${sec.title}\n- (truncated)`
+    return `### ${sec.title}\n${lines.join('\n')}`
+  }
+
   let block = assemble(header, sections)
   let tokens = countTokens(block)
 
   for (const key of trimOrder) {
     if (tokens <= maxTokens && block.length <= MAX_CHARS) break
     const sec = byKey.get(key)
-    if (sec) sec.body = `### ${sec.title}\n- (truncated)`
-    block = assemble(header, sections)
-    tokens = countTokens(block)
+    if (!sec) continue
+    const lines = contentLines.get(key)!
+    while ((tokens > maxTokens || block.length > MAX_CHARS) && lines.length > 0) {
+      lines.pop()
+      sec.body = rebuildBody(sec)
+      block = assemble(header, sections)
+      tokens = countTokens(block)
+    }
+    // If we drained all lines but still over budget, the (truncated) placeholder is already set.
   }
 
   if (block.length > MAX_CHARS) {

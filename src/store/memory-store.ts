@@ -34,8 +34,18 @@ export interface SymbolDep {
   toFile: string
 }
 
+export interface SessionSummary {
+  id: number
+  projectId: string
+  source: 'postcompact' | 'nightshift'
+  sigRange: string
+  summary: string
+  ts: number
+}
+
 export interface MemoryStore {
   runTransaction(fn: () => void): void
+  queryLatestSessionSummary(projectId: string): SessionSummary | undefined
   insertPromptSig(sig: PromptSig): void
   insertPromptSigOrIgnore(sig: PromptSig): void
   getPromptSig(sig: string): PromptSig | undefined

@@ -6,6 +6,7 @@ import type {
   ContextChunk,
   MemoryStore,
   PromptSig,
+  SessionSummary,
   Source,
   SymbolDep,
 } from './memory-store.js'
@@ -111,6 +112,26 @@ export class SqliteStore implements MemoryStore {
   /** Run `fn` inside a single transaction (nested calls use SAVEPOINTs via better-sqlite3). */
   runTransaction(fn: () => void): void {
     this.db.transaction(fn)()
+  }
+
+  queryLatestSessionSummary(projectId: string): SessionSummary | undefined {
+    // Prefer nightshift (cross-window synthesis) over postcompact (raw per-window snapshot).
+    const row = this.db
+      .prepare(
+        `SELECT id, project_id, source, sig_range, summary, ts FROM session_summary
+         WHERE project_id = ?
+         ORDER BY CASE source WHEN 'nightshift' THEN 0 ELSE 1 END, ts DESC LIMIT 1`,
+      )
+      .get(projectId) as { id: number; project_id: string; source: string; sig_range: string; summary: string; ts: number } | undefined
+    if (!row) return undefined
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      source: row.source as SessionSummary['source'],
+      sigRange: row.sig_range,
+      summary: row.summary,
+      ts: row.ts,
+    }
   }
 
   insertPromptSig(sig: PromptSig): void {

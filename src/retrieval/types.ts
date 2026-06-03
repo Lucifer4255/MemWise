@@ -1,6 +1,6 @@
 import type { EmbedFn } from '../embed/ollama-client.js'
 import type { Redis } from '../redis.js'
-import type { Change, ContextChunk, MemoryStore, PromptSig, SymbolDep } from '../store/memory-store.js'
+import type { Change, ContextChunk, MemoryStore, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
 
 export type RouteMode = 'recency' | 'symbol' | 'semantic' | 'session'
 
@@ -26,6 +26,8 @@ export interface ContextBundle {
   mode: RouteMode
   /** Session-recap mode only: recent project prompts (newest first) → "Working on" section. */
   recentPrompts?: PromptSig[]
+  /** Session-recap mode only: latest daemon-written summary for the project (Layer 8). */
+  latestSummary?: SessionSummary
 }
 
 export interface RetrieveOptions {

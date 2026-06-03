@@ -18,16 +18,16 @@ export class Embedder {
     })
   }
 
-  /** Split text, embed parts concurrently, mean-pool, write vector in place on the Redis hash. */
+  /** Split text, embed parts sequentially (avoids Ollama 503 under burst), mean-pool, write. */
   async embedChunk(sessionId: string, seq: number, text: string): Promise<number[]> {
     const trimmed = text.trim()
     if (!trimmed) return []
 
-    const parts = chunkText(trimmed)
-    const vectors =
-      parts.length > 0
-        ? await Promise.all(parts.map(p => this.embedFn(p)))
-        : [await this.embedFn(trimmed)]
+    const toEmbed = chunkText(trimmed)
+    if (toEmbed.length === 0) toEmbed.push(trimmed)
+
+    const vectors: number[][] = []
+    for (const part of toEmbed) vectors.push(await this.embedFn(part))
 
     const pooled = vectors.length === 1 ? vectors[0]! : meanPool(vectors)
     await writeChunkEmbedding(sessionId, seq, embeddingToBuffer(pooled), this.redis)

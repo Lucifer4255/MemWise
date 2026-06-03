@@ -8,7 +8,7 @@ import { EMBED_DIM } from '../config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
@@ -100,10 +100,13 @@ END;
 
 CREATE TABLE IF NOT EXISTS session_summary (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'nightshift',
   sig_range TEXT NOT NULL,
   summary TEXT NOT NULL,
   ts INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_session_summary_project ON session_summary(project_id, ts DESC);
 
 CREATE TABLE IF NOT EXISTS semantic_fact (
   id TEXT PRIMARY KEY,
