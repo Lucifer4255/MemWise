@@ -2,13 +2,17 @@ import type Database from 'better-sqlite3'
 import { embeddingToBuffer } from '../embed/vector.js'
 import { fuseRankedLists } from '../rrf.js'
 import type {
+  CaptureCursor,
   Change,
   ContextChunk,
   MemoryStore,
   PromptSig,
+  RecentMessage,
   SessionSummary,
   Source,
   SymbolDep,
+  TelemetryEvent,
+  TelemetryKind,
 } from './memory-store.js'
 
 export function contextChunkIdForSig(sig: string): string {
@@ -90,6 +94,15 @@ function rowToSymbolDep(row: SymbolDepRow): SymbolDep {
   }
 }
 
+function safeJson(s: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(s) as unknown
+    return v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
+}
+
 function ftsQuery(keywords: string): string {
   const trimmed = keywords.trim()
   if (!trimmed) return ''
@@ -114,6 +127,15 @@ export class SqliteStore implements MemoryStore {
     this.db.transaction(fn)()
   }
 
+  insertSessionSummary(row: Omit<SessionSummary, 'id'>): void {
+    this.db
+      .prepare(
+        `INSERT INTO session_summary (project_id, source, sig_range, summary, ts)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(row.projectId, row.source, row.sigRange, row.summary, row.ts)
+  }
+
   queryLatestSessionSummary(projectId: string): SessionSummary | undefined {
     // Prefer nightshift (cross-window synthesis) over postcompact (raw per-window snapshot).
     const row = this.db
@@ -132,6 +154,104 @@ export class SqliteStore implements MemoryStore {
       summary: row.summary,
       ts: row.ts,
     }
+  }
+
+  getCaptureCursor(sessionId: string): CaptureCursor | undefined {
+    const row = this.db
+      .prepare(`SELECT session_id, last_uuid, ts FROM capture_cursor WHERE session_id = ?`)
+      .get(sessionId) as { session_id: string; last_uuid: string; ts: number } | undefined
+    if (!row) return undefined
+    return { sessionId: row.session_id, lastUuid: row.last_uuid, ts: row.ts }
+  }
+
+  setCaptureCursor(cursor: CaptureCursor): void {
+    this.db
+      .prepare(
+        `INSERT INTO capture_cursor (session_id, last_uuid, ts) VALUES (?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET last_uuid = excluded.last_uuid, ts = excluded.ts`,
+      )
+      .run(cursor.sessionId, cursor.lastUuid, cursor.ts)
+  }
+
+  insertTelemetry(kind: TelemetryKind, payload: Record<string, unknown>): void {
+    this.db
+      .prepare(`INSERT INTO telemetry (ts, kind, payload) VALUES (?, ?, ?)`)
+      .run(Date.now(), kind, JSON.stringify(payload))
+  }
+
+  queryRecentTelemetry(afterId: number, limit: number): TelemetryEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, ts, kind, payload FROM telemetry WHERE id > ? ORDER BY id ASC LIMIT ?`,
+      )
+      .all(afterId, limit) as { id: number; ts: number; kind: string; payload: string }[]
+    return rows.map(r => ({
+      id: r.id,
+      ts: r.ts,
+      kind: r.kind as TelemetryKind,
+      payload: safeJson(r.payload),
+    }))
+  }
+
+  queryRecentMessages(limit: number): RecentMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.sig AS sig, c.project_id AS project_id, p.prompt_text AS prompt_text,
+                c.text AS text, c.enriched AS enriched, c.ts AS ts
+         FROM context_chunk c
+         JOIN prompt_sig p ON p.sig = c.sig
+         ORDER BY c.ts DESC
+         LIMIT ?`,
+      )
+      .all(limit) as {
+      sig: string
+      project_id: string
+      prompt_text: string
+      text: string
+      enriched: number
+      ts: number
+    }[]
+    return rows.map(r => ({
+      sig: r.sig,
+      projectId: r.project_id,
+      promptText: r.prompt_text,
+      text: r.text,
+      enriched: r.enriched === 1,
+      ts: r.ts,
+    }))
+  }
+
+  countChunksSince(projectId: string, sinceTs: number): number {
+    return (
+      this.db
+        .prepare(`SELECT COUNT(*) AS n FROM context_chunk WHERE project_id = ? AND ts > ?`)
+        .get(projectId, sinceTs) as { n: number }
+    ).n
+  }
+
+  queryRecentSessionSummaries(projectId: string, limit: number): SessionSummary[] {
+    if (limit <= 0) return []
+    const rows = this.db
+      .prepare(
+        `SELECT id, project_id, source, sig_range, summary, ts FROM session_summary
+         WHERE project_id = ? ORDER BY ts DESC LIMIT ?`,
+      )
+      .all(projectId, limit) as {
+      id: number
+      project_id: string
+      source: string
+      sig_range: string
+      summary: string
+      ts: number
+    }[]
+    return rows.map(r => ({
+      id: r.id,
+      projectId: r.project_id,
+      source: r.source as SessionSummary['source'],
+      sigRange: r.sig_range,
+      summary: r.summary,
+      ts: r.ts,
+    }))
   }
 
   insertPromptSig(sig: PromptSig): void {
@@ -194,12 +314,21 @@ export class SqliteStore implements MemoryStore {
       // the vector when the row was actually inserted, or chunk_vec would gain a duplicate.
       const res = this.db
         .prepare(
-          `INSERT OR IGNORE INTO context_chunk (id, sig, text, project_id, ts)
-           VALUES (?, ?, ?, ?, ?)`,
+          `INSERT OR IGNORE INTO context_chunk (id, sig, text, project_id, ts, enriched, embedded)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(chunk.id, chunk.sig, chunk.text, chunk.projectId, chunk.ts)
+        .run(
+          chunk.id,
+          chunk.sig,
+          chunk.text,
+          chunk.projectId,
+          chunk.ts,
+          chunk.enriched ? 1 : 0,
+          embedding.length > 0 ? 1 : 0,
+        )
 
       if (res.changes === 0) return
+      if (embedding.length === 0) return
 
       this.db
         .prepare(`INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, ?)`)

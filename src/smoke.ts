@@ -1,6 +1,5 @@
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
-import { Redis } from 'ioredis'
 import Parser from 'tree-sitter'
 import TSTypeScript from 'tree-sitter-typescript'
 import { EMBED_MODEL, EMBED_DIM, OLLAMA_URL } from './config.js'
@@ -52,22 +51,7 @@ function testSqliteVec(): Result {
   }
 }
 
-// ── 3. ioredis ───────────────────────────────────────────────────────────────
-async function testRedis(): Promise<Result> {
-  const redis = new Redis({ lazyConnect: true })
-  try {
-    await redis.connect()
-    const pong = await redis.ping()
-    await redis.quit()
-    if (pong !== 'PONG') return fail('ioredis', `PING returned "${pong}"`)
-    return pass('ioredis', 'PING → PONG')
-  } catch (e) {
-    await redis.quit().catch(() => {})
-    return fail('ioredis', String(e))
-  }
-}
-
-// ── 4. tree-sitter ───────────────────────────────────────────────────────────
+// ── 3. tree-sitter ───────────────────────────────────────────────────────────
 function testTreeSitter(): Result {
   try {
     const parser = new Parser()
@@ -87,7 +71,7 @@ function testTreeSitter(): Result {
   }
 }
 
-// ── 5. Ollama HTTP ───────────────────────────────────────────────────────────
+// ── 4. Ollama HTTP ───────────────────────────────────────────────────────────
 async function testOllama(): Promise<Result> {
   const url = `${OLLAMA_URL}/api/embeddings`
   try {
@@ -123,7 +107,6 @@ async function main() {
   const results: Result[] = [
     testSqlite(),
     testSqliteVec(),
-    await testRedis(),
     testTreeSitter(),
     await testOllama(),
   ]

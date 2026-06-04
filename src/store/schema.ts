@@ -8,7 +8,7 @@ import { EMBED_DIM } from '../config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
@@ -66,6 +66,11 @@ CREATE TABLE IF NOT EXISTS context_chunk (
   text TEXT NOT NULL,
   project_id TEXT NOT NULL,
   ts INTEGER NOT NULL,
+  -- v5: enriched=1 once the chat model rewrote the text; embedded=1 once a vector exists.
+  -- Normally both land together in the single turn-end write; the flags let "memwise catch-up"
+  -- find a row whose write was interrupted before its vector was inserted.
+  enriched INTEGER NOT NULL DEFAULT 0,
+  embedded INTEGER NOT NULL DEFAULT 0,
   FOREIGN KEY(sig) REFERENCES prompt_sig(sig)
 );
 
@@ -122,9 +127,42 @@ CREATE TABLE IF NOT EXISTS procedural (
   sequence TEXT NOT NULL,
   freq INTEGER NOT NULL DEFAULT 0
 );
+
+-- v5: per-session transcript read cursor. Capture reads the transcript from here forward, so
+-- a cancelled turn (no Stop) is picked up at the next trigger and nothing is processed twice.
+CREATE TABLE IF NOT EXISTS capture_cursor (
+  session_id TEXT PRIMARY KEY,
+  last_uuid TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+
+-- v5: append-only observability events (kind: 'message' | 'enrich' | 'embed' | 'job2').
+-- Read by the on-demand dashboard; never on the hot path.
+CREATE TABLE IF NOT EXISTS telemetry (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_telemetry_kind_ts ON telemetry(kind, ts DESC);
 `
+}
+
+/** Columns added after a table's first ship — `CREATE TABLE IF NOT EXISTS` won't add them to an
+ *  existing DB, so apply them idempotently here (ignore "duplicate column" on re-run). */
+function migrateAdditiveColumns(db: Database.Database): void {
+  const cols = (db.prepare(`PRAGMA table_info(context_chunk)`).all() as { name: string }[]).map(
+    c => c.name,
+  )
+  if (!cols.includes('enriched')) {
+    db.exec(`ALTER TABLE context_chunk ADD COLUMN enriched INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!cols.includes('embedded')) {
+    db.exec(`ALTER TABLE context_chunk ADD COLUMN embedded INTEGER NOT NULL DEFAULT 0`)
+  }
 }
 
 export function applySchema(db: Database.Database, embedDim: number = EMBED_DIM): void {
   db.exec(schemaSql(embedDim))
+  migrateAdditiveColumns(db)
 }

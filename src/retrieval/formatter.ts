@@ -1,5 +1,5 @@
 import { RETRIEVE_MAX_TOKENS } from '../config.js'
-import { estimateTokens } from '../redis.js'
+import { estimateTokens } from '../tokens.js'
 import type { Change, ContextChunk, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
 import type { AnchorHit, ContextBundle } from './types.js'
 

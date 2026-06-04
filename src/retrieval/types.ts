@@ -1,5 +1,4 @@
 import type { EmbedFn } from '../embed/ollama-client.js'
-import type { Redis } from '../redis.js'
 import type { Change, ContextChunk, MemoryStore, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
 
 export type RouteMode = 'recency' | 'symbol' | 'semantic' | 'session'
@@ -35,11 +34,8 @@ export interface RetrieveOptions {
   sessionId?: string
   store?: MemoryStore
   embedFn?: EmbedFn
-  redis?: Redis
   maxTokens?: number
   hybridLimit?: number
-  /** Skip Redis hot search (tests / cold-only). */
-  skipHot?: boolean
   /** Force a route mode, bypassing the NL router (e.g. the memwise_session tool forces 'session'). */
   mode?: RouteMode
 }

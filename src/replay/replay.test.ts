@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { closeRedis, getRedis } from '../redis.js'
+import { EMBED_DIM } from '../config.js'
 import { retrieve } from '../retrieval/retrieve.js'
 import { readTranscript } from './transcript-reader.js'
 import { replayTranscript } from './replay.js'
@@ -9,6 +10,11 @@ import { replayTranscript } from './replay.js'
 type TestResult = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): TestResult => ({ name, ok: true, detail })
 const fail = (name: string, detail: string): TestResult => ({ name, ok: false, detail })
+
+function detEmbed(text: string): Promise<number[]> {
+  const h = createHash('sha256').update(text).digest()
+  return Promise.resolve(Array.from({ length: EMBED_DIM }, (_, i) => (h[i % h.length]! / 255) * 2 - 1))
+}
 
 // A minimal but real-shaped Claude Code transcript: 2 user turns, narration, Write tool calls,
 // and tool_results (matching the verified schema: user/string prompts, assistant/tool_use, etc.).
@@ -57,43 +63,29 @@ async function main(): Promise<void> {
     }
   }
 
-  // Redis required for the full replay (hot window). Skip gracefully if unavailable.
-  let redisOk = false
-  try {
-    await getRedis().connect()
-    await getRedis().ping()
-    redisOk = true
-  } catch {
-    results.push(pass('replay capture', 'skipped (Redis unavailable)'))
-    results.push(pass('replay session recap', 'skipped (Redis unavailable)'))
+  // 2. full replay → SQLite rows (deterministic embedder, no Ollama, no Redis).
+  const summary = await replayTranscript(path, { embedFn: detEmbed })
+  const c = summary.counts
+  if (summary.turnsFinalized === 2 && c.promptSig === 2 && c.contextChunk === 2 && c.change >= 2) {
+    results.push(pass('replay capture', `${summary.turnsFinalized} turns → ${c.promptSig} sig, ${c.change} change`))
+  } else {
+    results.push(
+      fail('replay capture', `turns=${summary.turnsFinalized} sig=${c.promptSig} chunk=${c.contextChunk} change=${c.change}`),
+    )
   }
 
-  if (redisOk) {
-    // 2. full replay → SQLite rows (deterministic embedder, no Ollama).
-    const summary = await replayTranscript(path)
-    const c = summary.counts
-    if (summary.turnsFinalized === 2 && c.promptSig === 2 && c.contextChunk === 2 && c.change >= 2) {
-      results.push(pass('replay capture', `${summary.turnsFinalized} turns → ${c.promptSig} sig, ${c.change} change`))
-    } else {
-      results.push(
-        fail('replay capture', `turns=${summary.turnsFinalized} sig=${c.promptSig} chunk=${c.contextChunk} change=${c.change}`),
-      )
-    }
-
-    // 3. session recap over the replayed project surfaces the recent prompts.
-    const result = await retrieve('what are we working on', {
-      store: summary.store,
-      projectId: summary.projectId,
-      skipHot: true,
-    })
-    if (result.block.includes('write tests for the retry path') && result.block.includes('current work')) {
-      results.push(pass('replay session recap', 'recent prompts surfaced'))
-    } else {
-      results.push(fail('replay session recap', result.block.slice(0, 200)))
-    }
-    summary.db.close()
-    await closeRedis()
+  // 3. session recap over the replayed project surfaces the recent prompts.
+  const result = await retrieve('what are we working on', {
+    store: summary.store,
+    projectId: summary.projectId,
+    embedFn: detEmbed,
+  })
+  if (result.block.includes('write tests for the retry path') && result.block.includes('current work')) {
+    results.push(pass('replay session recap', 'recent prompts surfaced'))
+  } else {
+    results.push(fail('replay session recap', result.block.slice(0, 200)))
   }
+  summary.db.close()
 
   console.log('\n── memwise replay harness tests ──\n')
   let passed = 0

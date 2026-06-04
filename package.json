@@ -5,17 +5,18 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts && npx tsx src/pipeline/pipeline.test.ts && npx tsx src/parser/parser.test.ts && npx tsx src/layer5/layer5.test.ts && npx tsx src/retrieval/retrieval.test.ts && npx tsx src/replay/replay.test.ts",
+    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts && npx tsx src/parser/parser.test.ts && npx tsx src/retrieval/retrieval.test.ts && npx tsx src/replay/replay.test.ts && npx tsx src/cli/hook.test.ts && npx tsx src/adapters/adapters.test.ts && npx tsx src/dashboard/dashboard.test.ts",
+    "test:hook": "npx tsx src/cli/hook.test.ts",
+    "test:adapters": "npx tsx src/adapters/adapters.test.ts",
     "test:retrieval": "npx tsx src/retrieval/retrieval.test.ts",
     "test:replay": "npx tsx src/replay/replay.test.ts",
+    "test:dashboard": "npx tsx src/dashboard/dashboard.test.ts",
     "replay": "npx tsx src/replay/replay.ts",
     "memwise-mcp": "npx tsx src/mcp/query-server.ts",
     "test:store": "npx tsx src/store/store.test.ts",
     "test:smoke": "npx tsx src/smoke.ts",
     "test:bracket": "npx tsx src/bracket.test.ts",
-    "test:pipeline": "npx tsx src/pipeline/pipeline.test.ts",
-    "test:parser": "npx tsx src/parser/parser.test.ts",
-    "test:layer5": "npx tsx src/layer5/layer5.test.ts"
+    "test:parser": "npx tsx src/parser/parser.test.ts"
   },
   "keywords": [],
   "author": "",
@@ -24,7 +25,6 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.10.0",
     "commander": "^15.0.0",
-    "ioredis": "^5.11.0",
     "sqlite-vec": "^0.1.9",
     "tree-sitter": "^0.21.1",
     "tree-sitter-c": "^0.21.4",
@@ -39,7 +39,6 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
-    "@types/ioredis": "^5.0.0",
     "@types/node": "^25.9.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"

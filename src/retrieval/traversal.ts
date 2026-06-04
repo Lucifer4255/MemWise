@@ -18,7 +18,8 @@ export function expandAnchors(opts: ExpandOpts): ContextBundle {
   const watchEdges = new Map<string, SymbolDep>()
 
   for (const anchor of anchors) {
-    for (const c of store.getChangesForSig(anchor.sig)) {
+    const sqlChanges = store.getChangesForSig(anchor.sig)
+    for (const c of sqlChanges) {
       changes.set(`${c.sig}:${c.file}:${c.symbol}`, c)
     }
     const chunk = store.getContextChunkBySig(anchor.sig)

@@ -6,8 +6,8 @@ export function embeddingToBuffer(embedding: number[]): Buffer {
 }
 
 export function bufferToEmbedding(buf: Buffer, dim: number = EMBED_DIM): number[] {
-  // readFloatLE (not a Float32Array view): ioredis hands back Buffers that slice a shared pool
-  // at an arbitrary byteOffset, and a Float32Array view requires a 4-byte-aligned offset.
+  // readFloatLE (not a Float32Array view): a Buffer may slice a shared pool at an arbitrary
+  // byteOffset, and a Float32Array view requires a 4-byte-aligned offset.
   const out = new Array<number>(dim)
   for (let i = 0; i < dim; i++) out[i] = buf.readFloatLE(i * 4)
   return out

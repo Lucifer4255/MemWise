@@ -36,37 +36,7 @@ export const EMBED_DIM: number = Number(process.env.MEMWISE_EMBED_DIM ?? 384)
 
 export const OLLAMA_URL: string = process.env.MEMWISE_OLLAMA_URL ?? 'http://localhost:11434'
 
-/**
- * Redis hot-window sizing (Layer 3). The window is a per-SESSION sliding buffer of recent
- * chunks; it flushes to the SQLite cold store on eviction (flush-then-delete, never drop).
- *
- * Capped by a TOKEN budget, not a chunk/message count — tokens are what the agents actually
- * burn. Rule of thumb at 384-dim: ~20 bytes of Redis RAM per token (a ~300-token chunk costs
- * ~6 KB: text + vector-in-hash + FLAT-index copy + metadata). So:
- *   1M tokens/session ≈ ~20–27 MB ;  2 agents (Claude + Cursor) ≈ ~40–55 MB.
- * REDIS_MAXMEMORY is a generous backstop (≈2× expected) with noeviction, so a runaway errors
- * loudly instead of silently dropping un-flushed chunks. RAM is never the binding constraint
- * here — the FLAT hot-KNN stays sub-3ms up to ~2M tokens; switch to HNSW only beyond ~5M.
- *
- * TIME dimension — durability comes from ACTIVE flushes, never from TTL expiry. A chunk
- * leaves the window via (1) PreCompact flush, (2) token-budget overflow, or (3) the orphan
- * sweep (session idle > ORPHAN_IDLE_S) — all three go through flush-then-delete. Redis TTL
- * is ONLY a leak backstop: it must stay > ORPHAN_IDLE_S + SWEEP_INTERVAL_S so a live daemon
- * always flushes a chunk before TTL could silently delete it (Redis expiry can't flush — the
- * key is already gone when the event fires). TTL firing un-flushed = daemon dead for 6h.
- * Active sweep + PreCompact flush are Layer 5/9; they MUST reuse the same onEvict path.
- */
-export const HOT_WINDOW_MAX_TOKENS: number = Number(process.env.MEMWISE_HOT_WINDOW_MAX_TOKENS ?? 1_000_000)
-export const HOT_WINDOW_TTL_S: number = Number(process.env.MEMWISE_HOT_WINDOW_TTL_S ?? 21600) // 6h — backstop only
-export const ORPHAN_IDLE_S: number = Number(process.env.MEMWISE_ORPHAN_IDLE_S ?? 7200) // 2h idle → flush session
-export const SWEEP_INTERVAL_S: number = Number(process.env.MEMWISE_SWEEP_INTERVAL_S ?? 300) // daemon sweep cadence
-export const REDIS_MAXMEMORY: string = process.env.MEMWISE_REDIS_MAXMEMORY ?? '128mb'
-export const REDIS_URL: string = process.env.MEMWISE_REDIS_URL ?? 'redis://localhost:6379'
-
-/** Avg tokens per chunk — used to estimate a chunk's token cost when trimming the window. */
-export const CHUNK_TOKENS_EST: number = Number(process.env.MEMWISE_CHUNK_TOKENS_EST ?? 300)
-
-/** Cold-store path for retrieval / flush (Layer 6). */
+/** SQLite store path — the single durable store (no Redis; capture writes here directly). */
 export const MEMWISE_DB_PATH: string =
   process.env.MEMWISE_DB_PATH ?? join(homedir(), '.memwise', 'memwise.db')
 
@@ -75,3 +45,21 @@ export const RETRIEVE_MAX_TOKENS: number = Number(process.env.MEMWISE_RETRIEVE_M
 
 /** Per-source candidate count before RRF fusion. */
 export const RETRIEVE_HYBRID_LIMIT: number = Number(process.env.MEMWISE_RETRIEVE_HYBRID_LIMIT ?? 10)
+
+/**
+ * Enrichment (Layer 8). At turn end the captured contextText is rewritten by a local chat model
+ * (vague narration → specific prose + per-change why) BEFORE embedding, so the vector is written
+ * once over the enriched text. Graceful: if ENRICH_MODEL isn't pulled, enrichment is skipped and
+ * the raw text is embedded — capture never hard-fails on a missing model.
+ */
+export const ENRICH_MODEL: string = process.env.MEMWISE_ENRICH_MODEL ?? 'qwen2.5:3b'
+export const ENRICH_TIMEOUT_MS: number = Number(process.env.MEMWISE_ENRICH_TIMEOUT_MS ?? 10_000)
+/** Tri-state: 'on' forces, 'off' disables, 'auto' probes /api/tags for ENRICH_MODEL. */
+export const ENRICH_ENABLED: 'on' | 'off' | 'auto' =
+  (process.env.MEMWISE_ENRICH_ENABLED as 'on' | 'off' | 'auto' | undefined) ?? 'auto'
+
+/** Job 2 episodic consolidation fires once this many new chunks land since the last nightshift row. */
+export const EPISODIC_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_EPISODIC_MIN_NEW_CHUNKS ?? 8)
+
+/** Observability dashboard (Layer 8.5) — localhost viewer, launched on demand. */
+export const MEMWISE_DASH_PORT: number = Number(process.env.MEMWISE_DASH_PORT ?? 4242)

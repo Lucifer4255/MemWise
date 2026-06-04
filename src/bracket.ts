@@ -1,7 +1,36 @@
+import { isApplyPatchCommand, parseApplyPatch } from './adapters/apply-patch.js'
 import { changesFromToolInput, type ResolvedChanges } from './parser/bridge.js'
 import { computeMessageSig, worthStoringMessage } from './signature.js'
 import type { Bracket, CaptureEvent, CodeChange, FinalizedMessage, Segment } from './types.js'
 import { createEmptySegment } from './types.js'
+
+/** Serialised open-bracket state. Originally a Redis cross-process snapshot (Layer 7); retained
+ *  as a pure (de)serialisation contract for tests and any out-of-process bracket transfer. */
+export interface SerializedBracket {
+  bracket: {
+    sessionId: string
+    promptText: string
+    turnId: string | null
+    projectId: string
+    source: 'claude-code' | 'codex' | 'cursor'
+    tsOpen: number
+    touchedFiles: string[]
+    closingMessage?: string
+    segments: Array<{
+      intentText: string | null
+      codeChanges: Array<{ file: string; symbol: string; changeType: 'added' | 'modified' | 'deleted' }>
+      messageChunks: string[]
+    }>
+    symbolDeps: Array<{ fromSymbol: string; fromFile: string; toSymbol: string; toFile: string }>
+  }
+  sigState: {
+    fileToLastSig: Record<string, string>
+    sigStoreOrder: string[]
+    storedSigs: string[]
+    lastStoredSig: string | null
+  }
+  seq: number
+}
 
 const DOC_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.mdx', '.markdown'])
 function isDocFile(path: string): boolean {
@@ -30,6 +59,17 @@ export function codeChangesFromToolEvent(event: CaptureEvent): ResolvedChanges {
   if (READONLY_TOOLS.has(event.toolName ?? '')) return { changes: [], deps: [] }
   const input = event.toolInput
   if (!input) return { changes: [], deps: [] }
+
+  // Codex apply_patch: the diff lives in input.command (no file_path). Parse the patch envelope
+  // into file-level changes — symbol resolution is deferred (no full-file content in the diff).
+  const command = typeof input.command === 'string' ? input.command : null
+  if ((event.toolName === 'apply_patch' || (command && isApplyPatchCommand(command))) && command) {
+    const patched = parseApplyPatch(command)
+    return {
+      changes: patched.map(p => ({ file: p.file, symbol: p.file, changeType: p.changeType })),
+      deps: [],
+    }
+  }
 
   const filePath =
     (typeof input.file_path === 'string' && input.file_path) ||
@@ -301,5 +341,65 @@ export class BracketManager {
     for (const file of files) {
       this.fileToLastSig.set(file, sig)
     }
+  }
+
+  /** Serialise the open bracket for a session to a Redis-storable snapshot (Layer 7 hook model). */
+  snapshotForSession(sessionId: string, seq: number): SerializedBracket | null {
+    const bracket = this.open.get(sessionId)
+    if (!bracket) return null
+    return {
+      bracket: {
+        sessionId: bracket.sessionId,
+        promptText: bracket.promptText,
+        turnId: bracket.turnId,
+        projectId: bracket.projectId,
+        source: bracket.source,
+        tsOpen: bracket.tsOpen,
+        touchedFiles: [...bracket.touchedFiles],
+        closingMessage: bracket.closingMessage,
+        segments: bracket.segments.map(s => ({
+          intentText: s.intentText,
+          codeChanges: s.codeChanges.map(c => ({ ...c })),
+          messageChunks: [...s.messageChunks],
+        })),
+        symbolDeps: bracket.symbolDeps.map(d => ({ ...d })),
+      },
+      sigState: {
+        fileToLastSig: Object.fromEntries(this.fileToLastSig),
+        sigStoreOrder: [...this.sigStoreOrder],
+        storedSigs: [...this.storedSigs],
+        lastStoredSig: this.lastStoredSig,
+      },
+      seq,
+    }
+  }
+
+  /** Restore bracket state from a cross-process snapshot (Layer 7 hook model). */
+  restoreFromSnapshot(snap: SerializedBracket): void {
+    const b = snap.bracket
+    this.open.set(b.sessionId, {
+      promptText: b.promptText,
+      segments: b.segments.map(s => ({
+        intentText: s.intentText,
+        codeChanges: s.codeChanges.map(c => ({ ...c })),
+        messageChunks: [...s.messageChunks],
+      })),
+      sessionId: b.sessionId,
+      turnId: b.turnId,
+      projectId: b.projectId,
+      source: b.source,
+      tsOpen: b.tsOpen,
+      touchedFiles: [...b.touchedFiles],
+      symbolDeps: b.symbolDeps.map(d => ({ ...d })),
+      closingMessage: b.closingMessage,
+    })
+    const s = snap.sigState
+    for (const [file, sig] of Object.entries(s.fileToLastSig)) this.fileToLastSig.set(file, sig)
+    this.sigStoreOrder.push(...s.sigStoreOrder)
+    for (const sig of s.storedSigs) this.storedSigs.add(sig)
+    this.lastStoredSig = s.lastStoredSig
+    // Restore pendingIntent from the last segment so next NARRATION event binds correctly.
+    const lastSeg = b.segments[b.segments.length - 1]
+    if (lastSeg?.intentText) this.pendingIntent = lastSeg.intentText
   }
 }

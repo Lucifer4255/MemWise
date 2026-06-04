@@ -37,7 +37,8 @@ export async function retrieve(
   let anchors
 
   if (routeResult.mode === 'recency' || routeResult.mode === 'session') {
-    anchors = await searchRecentAnchors(store, projectId, hybridLimit)
+    // Everything is in SQLite the moment a turn ends — recency reads the cold store directly.
+    anchors = searchRecentAnchors(store, projectId, hybridLimit)
   } else {
     let embedding: number[] = []
     try {
@@ -45,16 +46,19 @@ export async function retrieve(
     } catch {
       embedding = []
     }
-    anchors = await searchAnchors({
+    anchors = searchAnchors({
       projectId,
       query: trimmed,
       embedding,
       store,
-      redis: opts.redis,
-      sessionId: opts.sessionId,
       limit: hybridLimit,
-      skipHot: opts.skipHot,
     })
+    // Safety net: a semantic/symbol query that matches nothing (or whose embedding momentarily
+    // failed) should still surface recent context rather than "no matching memory" — the project
+    // clearly has work the user wants to recall. Degrade to recency instead of an empty block.
+    if (anchors.length === 0) {
+      anchors = searchRecentAnchors(store, projectId, hybridLimit)
+    }
   }
 
   if (anchors.length === 0) {

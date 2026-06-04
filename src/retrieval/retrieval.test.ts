@@ -1,18 +1,10 @@
 import { EMBED_DIM } from '../config.js'
 import { openDatabase } from '../db.js'
 import { server as mcpServer } from '../mcp/query-server.js'
-import {
-  closeRedis,
-  ensureSearchIndex,
-  getRedis,
-  pushHotChunk,
-  SEARCH_INDEX,
-  writeChunkEmbedding,
-} from '../redis.js'
 import { contextChunkIdForSig } from '../store/sqlite-store.js'
 import type { ContextChunk, PromptSig } from '../store/memory-store.js'
 import { countTokens, formatBundle } from './formatter.js'
-import { searchAnchors, escapeTagValue } from './hybrid-search.js'
+import { searchAnchors } from './hybrid-search.js'
 import { fuseRankedLists } from '../rrf.js'
 import { route } from './router.js'
 import { retrieve } from './retrieve.js'
@@ -154,7 +146,6 @@ async function main(): Promise<void> {
       store,
       projectId,
       embedFn: mockEmbed,
-      skipHot: true,
     })
     if (result.block.includes('processPayment')) {
       results.push(pass('semantic retrieve', `${result.anchors.length} anchor(s)`))
@@ -181,7 +172,6 @@ async function main(): Promise<void> {
       store,
       projectId,
       embedFn: async () => fakeEmbedding(0),
-      skipHot: true,
     })
     if (result.anchors[0]?.sig === newSig) {
       results.push(pass('recency retrieve', 'newest chunk first'))
@@ -205,7 +195,6 @@ async function main(): Promise<void> {
       store,
       projectId,
       mode: 'session',
-      skipHot: true,
     })
     const ok =
       result.block.includes('current work') &&
@@ -311,7 +300,6 @@ async function main(): Promise<void> {
       store,
       projectId,
       embedFn: async () => fakeEmbedding(42),
-      skipHot: true,
     })
     const ms = performance.now() - t0
     if (ms < 200) {
@@ -339,94 +327,6 @@ async function main(): Promise<void> {
       results.push(pass('MCP tools registered', 'memwise_query + memwise_session'))
     } else {
       results.push(fail('MCP tools registered', `got ${tools ? Object.keys(tools).join(',') : 'none'}`))
-    }
-  }
-
-  // Three-source + gap recall (Redis optional)
-  let redisOk = false
-  try {
-    const redis = getRedis()
-    await redis.connect()
-    await ensureSearchIndex(redis)
-    redisOk = true
-    const runId = Date.now()
-    const redisProjectId = `proj_l6_${runId}`
-    const sessionId = `l6${runId}`
-    const hotSig = 'i'.repeat(64)
-    const coldSig = 'j'.repeat(64)
-
-    await pushHotChunk({
-      sessionId,
-      projectId: redisProjectId,
-      seq: 1,
-      text: 'hot unique knn anchor processPayment',
-      sig: hotSig,
-      ts: runId,
-    })
-    const vec = fakeEmbedding(77)
-    const blob = Buffer.alloc(EMBED_DIM * 4)
-    vec.forEach((v, idx) => blob.writeFloatLE(v, idx * 4))
-    await writeChunkEmbedding(sessionId, 1, blob, redis)
-
-    const { store: coldStore } = openDatabase(':memory:')
-    seedSpine(coldStore, coldSig, redisProjectId, {
-      promptText: 'cold',
-      chunkText: 'cold sqlite hybrid knn anchor overlap',
-      embedSeed: 77,
-    })
-
-    const fused = await searchAnchors({
-      projectId: redisProjectId,
-      query: 'processPayment',
-      embedding: vec,
-      store: coldStore,
-      redis,
-      limit: 5,
-    })
-    const sigs = new Set(fused.map(a => a.sig))
-    if (sigs.has(hotSig) && sigs.has(coldSig)) {
-      results.push(pass('three-source fusion', [...sigs].map(s => s.slice(0, 8)).join(', ')))
-    } else {
-      results.push(
-        fail('three-source fusion', `hot=${sigs.has(hotSig)} cold=${sigs.has(coldSig)}`),
-      )
-    }
-
-    // Gap: embedded=0 found via text only
-    const gapSession = `l6gap${runId}`
-    await pushHotChunk({
-      sessionId: gapSession,
-      projectId: redisProjectId,
-      seq: 1,
-      text: 'uniquegapkeyword processPayment retry overlap',
-      sig: 'k'.repeat(64),
-      ts: runId + 1,
-    })
-    const { store: gapColdStore } = openDatabase(':memory:')
-    const gapHits = await searchAnchors({
-      projectId: redisProjectId,
-      query: 'uniquegapkeyword processPayment',
-      embedding: new Array(EMBED_DIM).fill(0),
-      store: gapColdStore,
-      redis,
-      sessionId: gapSession,
-      limit: 5,
-    })
-    if (gapHits.some(h => h.text.includes('uniquegapkeyword'))) {
-      results.push(pass('gap text recall', 'embedded=0 via hot-text'))
-    } else {
-      results.push(fail('gap text recall', `hits=${gapHits.length}`))
-    }
-
-    void escapeTagValue('/tmp/test')
-    await redis.del(`${sessionId}`).catch(() => {})
-    await closeRedis()
-  } catch (e) {
-    if (!redisOk) {
-      results.push(pass('three-source fusion', 'skipped (Redis unavailable)'))
-      results.push(pass('gap text recall', 'skipped (Redis unavailable)'))
-    } else {
-      results.push(fail('Redis integration', String(e)))
     }
   }
 

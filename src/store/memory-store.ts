@@ -25,6 +25,8 @@ export interface ContextChunk {
   text: string
   projectId: string
   ts: number
+  /** v5: true when the chat model rewrote this text before embedding (Layer 8). */
+  enriched?: boolean
 }
 
 export interface SymbolDep {
@@ -43,9 +45,46 @@ export interface SessionSummary {
   ts: number
 }
 
+/** Per-session transcript read position (Layer 8 transcript capture). */
+export interface CaptureCursor {
+  sessionId: string
+  lastUuid: string
+  ts: number
+}
+
+export type TelemetryKind = 'message' | 'enrich' | 'embed' | 'job2'
+
+export interface TelemetryEvent {
+  id: number
+  ts: number
+  kind: TelemetryKind
+  /** JSON-decoded event fields (shape depends on kind). */
+  payload: Record<string, unknown>
+}
+
+/** A captured message joined with its context text — what the dashboard lists. */
+export interface RecentMessage {
+  sig: string
+  projectId: string
+  promptText: string
+  text: string
+  enriched: boolean
+  ts: number
+}
+
 export interface MemoryStore {
   runTransaction(fn: () => void): void
+  insertSessionSummary(row: Omit<SessionSummary, 'id'>): void
   queryLatestSessionSummary(projectId: string): SessionSummary | undefined
+  /** Recent summaries for a project (any source), newest first — Job 2 reads postcompact rows. */
+  queryRecentSessionSummaries(projectId: string, limit: number): SessionSummary[]
+  getCaptureCursor(sessionId: string): CaptureCursor | undefined
+  setCaptureCursor(cursor: CaptureCursor): void
+  insertTelemetry(kind: TelemetryKind, payload: Record<string, unknown>): void
+  queryRecentTelemetry(afterId: number, limit: number): TelemetryEvent[]
+  queryRecentMessages(limit: number): RecentMessage[]
+  /** Count chunks for a project newer than `sinceTs` — Job 2's "enough new work?" gate. */
+  countChunksSince(projectId: string, sinceTs: number): number
   insertPromptSig(sig: PromptSig): void
   insertPromptSigOrIgnore(sig: PromptSig): void
   getPromptSig(sig: string): PromptSig | undefined
