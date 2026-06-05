@@ -48,26 +48,26 @@ export function getParser(lang: SupportedLanguage): Parser {
   return parser
 }
 
-function grammarFor(lang: SupportedLanguage): unknown {
+function grammarFor(lang: SupportedLanguage): Parser.Language {
   switch (lang) {
     case 'typescript':
-      return (TypeScript as unknown as { typescript: unknown }).typescript
+      return (TypeScript as unknown as { typescript: Parser.Language }).typescript
     case 'tsx':
-      return (TypeScript as unknown as { tsx: unknown }).tsx
+      return (TypeScript as unknown as { tsx: Parser.Language }).tsx
     case 'javascript':
-      return JavaScript
+      return JavaScript as unknown as Parser.Language
     case 'python':
-      return Python
+      return Python as unknown as Parser.Language
     case 'go':
-      return Go
+      return Go as unknown as Parser.Language
     case 'java':
-      return Java
+      return Java as unknown as Parser.Language
     case 'cpp':
-      return Cpp
+      return Cpp as unknown as Parser.Language
     case 'c':
-      return C
+      return C as unknown as Parser.Language
     case 'rust':
-      return Rust
+      return Rust as unknown as Parser.Language
   }
 }
 

@@ -56,7 +56,7 @@ function testTreeSitter(): Result {
   try {
     const parser = new Parser()
     // TSTypeScript exports { typescript, tsx }
-    const lang = (TSTypeScript as unknown as { typescript: unknown }).typescript
+    const lang = (TSTypeScript as unknown as { typescript: Parser.Language }).typescript
     parser.setLanguage(lang)
     const tree = parser.parse('const x = 1')
     const root = tree.rootNode
