@@ -18,6 +18,8 @@ export interface ContextBundle {
   symbolChanges: Change[]
   watchEdges: SymbolDep[]
   mode: RetrieveMode
+  /** Turn-graph neighbors (v6): chunks from turns connected via file/symbol/forward edges. */
+  connectedChunks?: ContextChunk[]
   /** Session-recap mode only: recent project prompts (newest first) → "Working on" section. */
   recentPrompts?: PromptSig[]
   /** Session-recap mode only: latest daemon-written summary for the project (Layer 8). */

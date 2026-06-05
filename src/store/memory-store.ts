@@ -36,6 +36,17 @@ export interface SymbolDep {
   toFile: string
 }
 
+/** A directed edge in the turn graph (v6).
+ *  'file'/'symbol' edges: from=newer turn, to=most-recent prior turn touching the same file/symbol.
+ *  'forward' edge: from=parent turn, to=child turn (spine direction, enables forward traversal). */
+export interface TurnEdge {
+  fromSig: string
+  toSig: string
+  edgeType: 'file' | 'symbol' | 'forward'
+  label: string
+  ts: number
+}
+
 export interface SessionSummary {
   id: number
   projectId: string
@@ -105,4 +116,12 @@ export interface MemoryStore {
   getParentChain(sig: string, maxDepth: number): PromptSig[]
   queryChangesForSymbol(symbol: string): Change[]
   queryBlastRadius(symbol: string, file: string, depth?: number): SymbolDep[]
+  // ── turn graph (v6) ──────────────────────────────────────────────────────────────────────
+  insertTurnEdgeOrIgnore(edge: TurnEdge): void
+  /** Most recent sig (in this project, excluding `excludeSig`) that touched `file`. */
+  getPriorTurnForFile(file: string, projectId: string, excludeSig: string): string | undefined
+  /** Most recent sig (in this project, excluding `excludeSig`) that touched `symbol`. */
+  getPriorTurnForSymbol(symbol: string, projectId: string, excludeSig: string): string | undefined
+  /** All edges where `sig` is either endpoint — both directions in one call. */
+  getEdgeNeighbors(sig: string, limit: number): TurnEdge[]
 }

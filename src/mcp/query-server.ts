@@ -99,6 +99,10 @@ server.registerPrompt(
 
 export { server }
 
+export async function startMcpServer(): Promise<void> {
+  await main()
+}
+
 async function main(): Promise<void> {
   const transport = new StdioServerTransport()
   await server.connect(transport)

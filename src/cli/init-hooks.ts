@@ -1,23 +1,39 @@
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { EMBED_MODEL, ENRICH_MODEL } from '../config.js'
 
 function repoRoot(): string {
   return resolve(fileURLToPath(import.meta.url), '../../../')
 }
 
+/** Returns true if `memwise` resolves to the same package we're running from.
+ *  When globally installed, hooks should reference `memwise` by name so they survive upgrades
+ *  and moves; when running from a dev clone they fall back to an absolute node/tsx path. */
+function memwiseOnPath(): boolean {
+  const r = spawnSync('which', ['memwise'], { encoding: 'utf8' })
+  if (r.status !== 0 || !r.stdout.trim()) return false
+  // Confirm the binary on PATH points into the same package root (avoids using a stale global
+  // when the user is running `memwise init` from a dev clone with a different root).
+  const root = repoRoot()
+  return r.stdout.trim().startsWith(root) || existsSync(join(root, 'dist/bin/memwise.js'))
+}
+
 function resolveMemwiseBin(): string {
-  // Prefer the compiled dist/ path; fall back to tsx for development.
+  if (memwiseOnPath()) return 'memwise'
   const root = repoRoot()
   const compiled = join(root, 'dist/bin/memwise.js')
   if (existsSync(compiled)) return `node ${compiled}`
   return `npx tsx ${join(root, 'src/bin/memwise.ts')}`
 }
 
-/** The MCP query-server launch command, split into command + args (compiled dist, else tsx). */
+/** The MCP query-server launch command, split into command + args. */
 function resolveMcpServer(): { command: string; args: string[] } {
+  // When globally installed, prefer `memwise` on PATH so the MCP entry stays stable across
+  // upgrades. Fall back to absolute node/tsx path for dev installs.
+  if (memwiseOnPath()) return { command: 'memwise', args: ['mcp'] }
   const root = repoRoot()
   const compiled = join(root, 'dist/mcp/query-server.js')
   if (existsSync(compiled)) return { command: 'node', args: [compiled] }
@@ -162,14 +178,63 @@ function writeCursorMcp(dir: string): string {
   return mcpPath
 }
 
+/**
+ * Pull a single Ollama model, streaming progress to stdout.
+ * Returns true on success, false if Ollama is not installed or the pull fails.
+ */
+function ollamaPull(model: string, label: string): boolean {
+  const r = spawnSync('ollama', ['pull', model], { stdio: 'inherit' })
+  if (r.error) {
+    // ENOENT → ollama not on PATH
+    console.log(`[memwise] ${label}: ollama not found — skipping pull`)
+    return false
+  }
+  if (r.status !== 0) {
+    console.log(`[memwise] ${label}: pull failed (exit ${String(r.status)}) — skipping`)
+    return false
+  }
+  return true
+}
+
+/**
+ * Ensure both Ollama models are pulled:
+ *   - embed model  (required — vectors can't be written without it)
+ *   - enrich model (optional — gracefully skipped at runtime if absent, but quality drops)
+ *
+ * If Ollama isn't installed at all, prints the install URL and returns without error
+ * so the rest of init (hooks + MCP) still completes.
+ */
+async function ensureOllamaModels(opts: { skipModels?: boolean }): Promise<void> {
+  if (opts.skipModels) return
+
+  const ollamaCheck = spawnSync('which', ['ollama'], { encoding: 'utf8' })
+  if (ollamaCheck.status !== 0 || !ollamaCheck.stdout.trim()) {
+    console.log('[memwise] Ollama not found — install it first: https://ollama.com/download')
+    console.log(`[memwise] Then pull models manually:`)
+    console.log(`    ollama pull ${EMBED_MODEL}   # required`)
+    console.log(`    ollama pull ${ENRICH_MODEL}  # optional (richer context)`)
+    return
+  }
+
+  console.log(`\n[memwise] Pulling embed model: ${EMBED_MODEL}  (required)`)
+  ollamaPull(EMBED_MODEL, 'embed')
+
+  console.log(`\n[memwise] Pulling enrich model: ${ENRICH_MODEL}  (optional — richer context)`)
+  ollamaPull(ENRICH_MODEL, 'enrich')
+}
+
 export interface InitOptions {
   /** Which agents to wire. Default: every one whose config dir exists. */
   targets?: Array<'claude-code' | 'codex' | 'cursor'>
   /** Skip MCP registration (hooks only). */
   noMcp?: boolean
+  /** Skip Ollama model pulls (useful in CI or if models are already present). */
+  skipModels?: boolean
 }
 
 export async function initHooks(opts: InitOptions = {}): Promise<void> {
+  await ensureOllamaModels(opts)
+
   const bin = resolveMemwiseBin()
   const home = homedir()
   const claudeDir = join(home, '.claude')

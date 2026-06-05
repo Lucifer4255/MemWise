@@ -13,6 +13,7 @@ import type {
   SymbolDep,
   TelemetryEvent,
   TelemetryKind,
+  TurnEdge,
 } from './memory-store.js'
 
 export function contextChunkIdForSig(sig: string): string {
@@ -516,6 +517,64 @@ export class SqliteStore implements MemoryStore {
       )
       .all(symbol, file, depth, MAX_BLAST_ROWS) as SymbolDepRow[]
     return rows.map(rowToSymbolDep)
+  }
+
+  insertTurnEdgeOrIgnore(edge: TurnEdge): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO turn_edge (from_sig, to_sig, edge_type, label, ts)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(edge.fromSig, edge.toSig, edge.edgeType, edge.label, edge.ts)
+  }
+
+  getPriorTurnForFile(file: string, projectId: string, excludeSig: string): string | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT p.sig FROM change c
+         JOIN prompt_sig p ON p.sig = c.sig
+         WHERE c.file = ? AND p.project_id = ? AND p.sig != ?
+         ORDER BY p.ts DESC LIMIT 1`,
+      )
+      .get(file, projectId, excludeSig) as { sig: string } | undefined
+    return row?.sig
+  }
+
+  getPriorTurnForSymbol(symbol: string, projectId: string, excludeSig: string): string | undefined {
+    if (!symbol || symbol === '<file>') return undefined
+    const row = this.db
+      .prepare(
+        `SELECT p.sig FROM change c
+         JOIN prompt_sig p ON p.sig = c.sig
+         WHERE c.symbol = ? AND p.project_id = ? AND p.sig != ?
+         ORDER BY p.ts DESC LIMIT 1`,
+      )
+      .get(symbol, projectId, excludeSig) as { sig: string } | undefined
+    return row?.sig
+  }
+
+  getEdgeNeighbors(sig: string, limit: number): TurnEdge[] {
+    if (limit <= 0) return []
+    const rows = this.db
+      .prepare(
+        `SELECT from_sig, to_sig, edge_type, label, ts FROM turn_edge
+         WHERE from_sig = ? OR to_sig = ?
+         ORDER BY ts DESC LIMIT ?`,
+      )
+      .all(sig, sig, limit) as {
+      from_sig: string
+      to_sig: string
+      edge_type: string
+      label: string
+      ts: number
+    }[]
+    return rows.map(r => ({
+      fromSig: r.from_sig,
+      toSig: r.to_sig,
+      edgeType: r.edge_type as TurnEdge['edgeType'],
+      label: r.label,
+      ts: r.ts,
+    }))
   }
 
   private queryVector(embedding: number[], limit: number): string[] {

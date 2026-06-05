@@ -1,5 +1,6 @@
 .env
 node_modules
+dist/
 memwise-spec.md
 plan.md
 am/

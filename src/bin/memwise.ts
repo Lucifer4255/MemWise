@@ -76,7 +76,8 @@ program
   .option('--target <agents>', 'Comma-separated: claude-code,codex,cursor (default: auto-detect)')
   .option('--no-mcp', 'Only write hooks; skip MCP server registration')
   .option('--no-dashboard', 'Do not launch the live dashboard after setup')
-  .action(async (opts: { target?: string; mcp?: boolean; dashboard?: boolean }) => {
+  .option('--skip-models', 'Skip Ollama model pulls (models already present, or CI)')
+  .action(async (opts: { target?: string; mcp?: boolean; dashboard?: boolean; skipModels?: boolean }) => {
     const { initHooks } = await import('../cli/init-hooks.js')
     const valid = ['claude-code', 'codex', 'cursor'] as const
     const targets = opts.target
@@ -84,14 +85,22 @@ program
           'claude-code' | 'codex' | 'cursor'
         >)
       : undefined
-    // commander sets opts.mcp=false when --no-mcp is passed.
-    await initHooks({ ...(targets ? { targets } : {}), noMcp: opts.mcp === false })
+    await initHooks({ ...(targets ? { targets } : {}), noMcp: opts.mcp === false, skipModels: opts.skipModels })
     if (opts.dashboard === false) {
       process.exit(0)
     }
     // Setup is done; keep the process alive serving the live dashboard so the first captures
     // are visible immediately. Ctrl-C stops only the dashboard (config is already written).
     await launchDashboard()
+  })
+
+// ── mcp (query server, referenced by init-hooks when globally installed) ──────────────────
+program
+  .command('mcp')
+  .description('Start the MemWise MCP query server (stdio transport)')
+  .action(async () => {
+    const { startMcpServer } = await import('../mcp/query-server.js')
+    await startMcpServer()
   })
 
 // ── status ────────────────────────────────────────────────────────────────────────────────

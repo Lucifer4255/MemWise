@@ -1,11 +1,30 @@
 {
   "name": "memwise",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "",
-  "main": "index.js",
+  "description": "Local-first AI memory for Claude Code, Codex, and Cursor — survives compaction",
+  "author": "Suhotra Dey <deysuhotra@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/suhotra-dey/memwise.git"
+  },
+  "homepage": "https://github.com/suhotra-dey/memwise#readme",
+  "keywords": ["claude-code", "ai-memory", "mcp", "llm", "coding-agent", "sqlite", "ollama"],
+  "engines": { "node": ">=20" },
+  "main": "dist/bin/memwise.js",
+  "bin": {
+    "memwise": "dist/bin/memwise.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts && npx tsx src/parser/parser.test.ts && npx tsx src/retrieval/retrieval.test.ts && npx tsx src/replay/replay.test.ts && npx tsx src/replay/transcript-readers.test.ts && npx tsx src/cli/hook.test.ts && npx tsx src/adapters/adapters.test.ts && npx tsx src/dashboard/dashboard.test.ts",
+    "build": "tsc",
+    "prepublishOnly": "npm run build && npm test",
+    "test": "node --experimental-vm-modules dist/smoke.js 2>/dev/null || npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts && npx tsx src/parser/parser.test.ts && npx tsx src/retrieval/retrieval.test.ts && npx tsx src/replay/replay.test.ts && npx tsx src/replay/transcript-readers.test.ts && npx tsx src/cli/hook.test.ts && npx tsx src/adapters/adapters.test.ts && npx tsx src/dashboard/dashboard.test.ts",
     "test:hook": "npx tsx src/cli/hook.test.ts",
     "test:adapters": "npx tsx src/adapters/adapters.test.ts",
     "test:retrieval": "npx tsx src/retrieval/retrieval.test.ts",
@@ -15,13 +34,11 @@
     "replay": "npx tsx src/replay/replay.ts",
     "memwise-mcp": "npx tsx src/mcp/query-server.ts",
     "test:store": "npx tsx src/store/store.test.ts",
+    "test:graph": "node dist/store/turn-graph.test.js",
     "test:smoke": "npx tsx src/smoke.ts",
     "test:bracket": "npx tsx src/bracket.test.ts",
     "test:parser": "npx tsx src/parser/parser.test.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.10.0",

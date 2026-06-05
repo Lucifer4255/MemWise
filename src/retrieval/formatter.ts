@@ -102,26 +102,40 @@ function headerFor(mode: RetrieveMode): string {
   return mode === 'session' ? '## memwise — current work' : '## memwise context'
 }
 
+function formatConnected(chunks: ContextChunk[]): string[] {
+  if (chunks.length === 0) return []
+  return chunks.map(c => `- ${c.text.slice(0, 160).replace(/\s+/g, ' ').trim()}`)
+}
+
 /** Section list + the order in which to trim them (lowest priority FIRST). Session mode leads
- *  with "Working on" and protects it (trimmed last); other modes keep the original layout. */
+ *  with "Working on" and protects it (trimmed last); other modes keep the original layout.
+ *  "Connected history" (v6 graph edges) is always trimmed first — it enriches context but is
+ *  never load-bearing the way "Relevant code" and "Why" are. */
 function buildSectionList(bundle: ContextBundle): { sections: Section[]; trimOrder: string[] } {
   const allChanges = [...bundle.changes, ...bundle.symbolChanges]
   const relevant: Section = { key: 'relevant', title: 'Relevant code', body: section('Relevant code', formatRelevantCode(allChanges)) }
   const why: Section = { key: 'why', title: 'Why (decision chain)', body: section('Why (decision chain)', formatWhy(bundle.parentChains)) }
   const watch: Section = { key: 'watch', title: 'Watch', body: section('Watch', formatWatch(bundle.watchEdges)) }
 
+  const connectedLines = formatConnected(bundle.connectedChunks ?? [])
+  const connected: Section | null = connectedLines.length > 0
+    ? { key: 'connected', title: 'Connected history', body: section('Connected history', connectedLines) }
+    : null
+
   if (bundle.mode === 'session') {
     const working: Section = { key: 'working', title: 'Working on', body: section('Working on', formatWorkingOn(bundle.recentPrompts ?? [])) }
+    const sections = [working, relevant, why, watch, ...(connected ? [connected] : [])]
     return {
-      sections: [working, relevant, why, watch],
-      trimOrder: ['watch', 'why', 'relevant', 'working'],
+      sections,
+      trimOrder: ['connected', 'watch', 'why', 'relevant', 'working'],
     }
   }
 
   const lastWork: Section = { key: 'lastWork', title: 'Last work here', body: section('Last work here', formatLastWork(bundle.latestSummary)) }
+  const sections = [relevant, why, lastWork, watch, ...(connected ? [connected] : [])]
   return {
-    sections: [relevant, why, lastWork, watch],
-    trimOrder: ['watch', 'lastWork', 'why', 'relevant'],
+    sections,
+    trimOrder: ['connected', 'watch', 'lastWork', 'why', 'relevant'],
   }
 }
 

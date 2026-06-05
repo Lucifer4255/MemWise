@@ -225,7 +225,8 @@ async function main(): Promise<void> {
     const bundle = expandAnchors({
       store: blastStore,
       anchors,
-      route: { mode: 'symbol', symbols: ['verifySignature'] },
+      mode: 'symbol',
+      symbols: ['verifySignature'],
     })
     const symbols = new Set(
       bundle.watchEdges.flatMap(e => [e.fromSymbol, e.toSymbol]),

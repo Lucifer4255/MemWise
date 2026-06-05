@@ -8,7 +8,7 @@ import { EMBED_DIM } from '../config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
@@ -136,6 +136,26 @@ CREATE TABLE IF NOT EXISTS capture_cursor (
   ts INTEGER NOT NULL
 );
 
+-- v6: turn-level graph edges. Each edge links two turns that share a file or symbol, or records
+-- the forward direction of the spine (parent→child). Edge model: for each file/symbol touched by a
+-- new turn, we store ONE edge to the most recent prior turn that also touched it — a per-file /
+-- per-symbol linked list. This keeps edge count O(n) while enabling full history traversal.
+--   edge_type: 'file'    label = file path   (prev turn that touched this file)
+--              'symbol'  label = symbol name  (prev turn that touched this symbol)
+--              'forward' label = ''           (parent → child spine direction)
+CREATE TABLE IF NOT EXISTS turn_edge (
+  from_sig   TEXT NOT NULL,
+  to_sig     TEXT NOT NULL,
+  edge_type  TEXT NOT NULL,
+  label      TEXT NOT NULL DEFAULT '',
+  ts         INTEGER NOT NULL,
+  PRIMARY KEY (from_sig, to_sig, edge_type, label)
+);
+-- label-based lookup: "all turns that touched file X" — walks the chain
+CREATE INDEX IF NOT EXISTS idx_turn_edge_label ON turn_edge(edge_type, label, ts DESC);
+-- reverse lookup: "what turns point TO this sig?" — enables forward traversal
+CREATE INDEX IF NOT EXISTS idx_turn_edge_to ON turn_edge(to_sig);
+
 -- v5: append-only observability events (kind: 'message' | 'enrich' | 'embed' | 'job2').
 -- Read by the on-demand dashboard; never on the hot path.
 CREATE TABLE IF NOT EXISTS telemetry (
@@ -148,8 +168,8 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_kind_ts ON telemetry(kind, ts DESC);
 `
 }
 
-/** Columns added after a table's first ship — `CREATE TABLE IF NOT EXISTS` won't add them to an
- *  existing DB, so apply them idempotently here (ignore "duplicate column" on re-run). */
+/** Tables added after first ship — applied idempotently by re-running `schemaSql` (all use
+ *  `CREATE TABLE/INDEX IF NOT EXISTS`). Only explicit column additions need separate migration. */
 function migrateAdditiveColumns(db: Database.Database): void {
   const cols = (db.prepare(`PRAGMA table_info(context_chunk)`).all() as { name: string }[]).map(
     c => c.name,
