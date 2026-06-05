@@ -1,12 +1,7 @@
 import type { EmbedFn } from '../embed/ollama-client.js'
 import type { Change, ContextChunk, MemoryStore, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
 
-export type RouteMode = 'recency' | 'symbol' | 'semantic' | 'session'
-
-export interface RouteResult {
-  mode: RouteMode
-  symbols?: string[]
-}
+export type RetrieveMode = 'recency' | 'symbol' | 'semantic' | 'session'
 
 export interface AnchorHit {
   sig: string
@@ -22,7 +17,7 @@ export interface ContextBundle {
   parentChains: PromptSig[][]
   symbolChanges: Change[]
   watchEdges: SymbolDep[]
-  mode: RouteMode
+  mode: RetrieveMode
   /** Session-recap mode only: recent project prompts (newest first) → "Working on" section. */
   recentPrompts?: PromptSig[]
   /** Session-recap mode only: latest daemon-written summary for the project (Layer 8). */
@@ -36,8 +31,8 @@ export interface RetrieveOptions {
   embedFn?: EmbedFn
   maxTokens?: number
   hybridLimit?: number
-  /** Force a route mode, bypassing the NL router (e.g. the memwise_session tool forces 'session'). */
-  mode?: RouteMode
+  /** Force a retrieve mode (e.g. memwise_recent forces 'session'). Default: 'semantic'. */
+  mode?: RetrieveMode
 }
 
 export interface RetrieveResult {

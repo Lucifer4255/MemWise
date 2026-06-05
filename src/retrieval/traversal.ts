@@ -1,16 +1,17 @@
 import type { Change, ContextChunk, MemoryStore, PromptSig, SymbolDep } from '../store/memory-store.js'
-import type { AnchorHit, ContextBundle, RouteResult } from './types.js'
+import type { AnchorHit, ContextBundle, RetrieveMode } from './types.js'
 
 const PARENT_CHAIN_DEPTH = 8
 
 export interface ExpandOpts {
   store: MemoryStore
   anchors: AnchorHit[]
-  route: RouteResult
+  mode: RetrieveMode
+  symbols?: string[]
 }
 
 export function expandAnchors(opts: ExpandOpts): ContextBundle {
-  const { store, anchors, route } = opts
+  const { store, anchors, mode, symbols } = opts
   const changes = new Map<string, Change>()
   const chunks = new Map<string, ContextChunk>()
   const parentChains: PromptSig[][] = []
@@ -29,8 +30,8 @@ export function expandAnchors(opts: ExpandOpts): ContextBundle {
     if (chain.length) parentChains.push(chain)
   }
 
-  if (route.mode === 'symbol' && route.symbols) {
-    for (const sym of route.symbols) {
+  if (mode === 'symbol' && symbols) {
+    for (const sym of symbols) {
       for (const c of store.queryChangesForSymbol(sym)) {
         symbolChanges.set(`${c.sig}:${c.file}:${c.symbol}`, c)
         const blast = store.queryBlastRadius(sym, c.file, 3)
@@ -55,6 +56,6 @@ export function expandAnchors(opts: ExpandOpts): ContextBundle {
     parentChains,
     symbolChanges: [...symbolChanges.values()],
     watchEdges: [...watchEdges.values()],
-    mode: route.mode,
+    mode,
   }
 }

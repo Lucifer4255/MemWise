@@ -6,7 +6,6 @@ import type { ContextChunk, PromptSig } from '../store/memory-store.js'
 import { countTokens, formatBundle } from './formatter.js'
 import { searchAnchors } from './hybrid-search.js'
 import { fuseRankedLists } from '../rrf.js'
-import { route } from './router.js'
 import { retrieve } from './retrieve.js'
 import { expandAnchors } from './traversal.js'
 import type { AnchorHit, ContextBundle } from './types.js'
@@ -86,7 +85,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // Router symbol
+  // Seed a symbol row used by semantic test below
   {
     const sig = 'b'.repeat(64)
     seedSpine(store, sig, projectId, {
@@ -94,32 +93,6 @@ async function main(): Promise<void> {
       chunkText: 'processPayment retry logic',
       symbol: 'processPayment',
     })
-    const r = route('why does processPayment retry', store)
-    if (r.mode === 'symbol' && r.symbols?.includes('processPayment')) {
-      results.push(pass('router symbol', r.mode))
-    } else {
-      results.push(fail('router symbol', `mode=${r.mode} symbols=${r.symbols?.join(',')}`))
-    }
-  }
-
-  // Router recency
-  {
-    const r = route('continue where I left off', store)
-    if (r.mode === 'recency') {
-      results.push(pass('router recency', r.mode))
-    } else {
-      results.push(fail('router recency', `mode=${r.mode}`))
-    }
-  }
-
-  // Router session (cross-agent handoff phrasing)
-  {
-    const r = route('get the context of what we are working on', store)
-    if (r.mode === 'session') {
-      results.push(pass('router session', r.mode))
-    } else {
-      results.push(fail('router session', `mode=${r.mode}`))
-    }
   }
 
   // Semantic: seed 10 rows, retrieve mentions processPayment
@@ -172,6 +145,7 @@ async function main(): Promise<void> {
       store,
       projectId,
       embedFn: async () => fakeEmbedding(0),
+      mode: 'recency',
     })
     if (result.anchors[0]?.sig === newSig) {
       results.push(pass('recency retrieve', 'newest chunk first'))
@@ -323,8 +297,8 @@ async function main(): Promise<void> {
   {
     const tools = (mcpServer as unknown as { _registeredTools?: Record<string, unknown> })
       ._registeredTools
-    if (tools && 'memwise_query' in tools && 'memwise_session' in tools) {
-      results.push(pass('MCP tools registered', 'memwise_query + memwise_session'))
+    if (tools && 'memwise_query' in tools && 'memwise_recent' in tools) {
+      results.push(pass('MCP tools registered', 'memwise_query + memwise_recent'))
     } else {
       results.push(fail('MCP tools registered', `got ${tools ? Object.keys(tools).join(',') : 'none'}`))
     }

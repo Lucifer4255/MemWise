@@ -1,7 +1,7 @@
 import { RETRIEVE_MAX_TOKENS } from '../config.js'
 import { estimateTokens } from '../tokens.js'
 import type { Change, ContextChunk, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
-import type { AnchorHit, ContextBundle } from './types.js'
+import type { AnchorHit, ContextBundle, RetrieveMode } from './types.js'
 
 export const EMPTY_BLOCK = '## memwise context\n(no matching memory)'
 const MAX_CHARS = 10_000
@@ -98,7 +98,7 @@ function formatLastWork(summary: SessionSummary | undefined): string[] {
     .map(l => (l.startsWith('-') ? l : `- ${l}`))
 }
 
-function headerFor(mode: ContextBundle['mode']): string {
+function headerFor(mode: RetrieveMode): string {
   return mode === 'session' ? '## memwise — current work' : '## memwise context'
 }
 

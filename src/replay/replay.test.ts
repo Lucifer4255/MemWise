@@ -79,6 +79,7 @@ async function main(): Promise<void> {
     store: summary.store,
     projectId: summary.projectId,
     embedFn: detEmbed,
+    mode: 'session',
   })
   if (result.block.includes('write tests for the retry path') && result.block.includes('current work')) {
     results.push(pass('replay session recap', 'recent prompts surfaced'))

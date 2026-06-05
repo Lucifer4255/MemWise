@@ -5,7 +5,6 @@ import { defaultOllamaEmbed } from '../embed/ollama-client.js'
 import { projectIdFromPath } from '../project.js'
 import { countTokens, EMPTY_BLOCK, formatBundle } from './formatter.js'
 import { searchAnchors, searchRecentAnchors } from './hybrid-search.js'
-import { route } from './router.js'
 import { expandAnchors } from './traversal.js'
 import type { RetrieveOptions, RetrieveResult } from './types.js'
 
@@ -32,12 +31,11 @@ export async function retrieve(
   const embedFn = opts.embedFn ?? defaultOllamaEmbed
   const hybridLimit = opts.hybridLimit ?? RETRIEVE_HYBRID_LIMIT
   const maxTokens = opts.maxTokens ?? RETRIEVE_MAX_TOKENS
+  const mode = opts.mode ?? 'semantic'
 
-  const routeResult = opts.mode ? { mode: opts.mode } : route(trimmed, store)
   let anchors
 
-  if (routeResult.mode === 'recency' || routeResult.mode === 'session') {
-    // Everything is in SQLite the moment a turn ends — recency reads the cold store directly.
+  if (mode === 'recency' || mode === 'session') {
     anchors = searchRecentAnchors(store, projectId, hybridLimit)
   } else {
     let embedding: number[] = []
@@ -53,9 +51,7 @@ export async function retrieve(
       store,
       limit: hybridLimit,
     })
-    // Safety net: a semantic/symbol query that matches nothing (or whose embedding momentarily
-    // failed) should still surface recent context rather than "no matching memory" — the project
-    // clearly has work the user wants to recall. Degrade to recency instead of an empty block.
+    // Fallback: if hybrid search returns nothing, surface recent context rather than empty.
     if (anchors.length === 0) {
       anchors = searchRecentAnchors(store, projectId, hybridLimit)
     }
@@ -70,8 +66,8 @@ export async function retrieve(
     }
   }
 
-  const bundle = expandAnchors({ store, anchors, route: routeResult })
-  if (routeResult.mode === 'session') {
+  const bundle = expandAnchors({ store, anchors, mode })
+  if (mode === 'session') {
     bundle.recentPrompts = store.queryRecentPromptSigs(projectId, hybridLimit)
     bundle.latestSummary = store.queryLatestSessionSummary(projectId)
   }

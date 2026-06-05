@@ -59,7 +59,7 @@ export const ENRICH_ENABLED: 'on' | 'off' | 'auto' =
   (process.env.MEMWISE_ENRICH_ENABLED as 'on' | 'off' | 'auto' | undefined) ?? 'auto'
 
 /** Job 2 episodic consolidation fires once this many new chunks land since the last nightshift row. */
-export const EPISODIC_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_EPISODIC_MIN_NEW_CHUNKS ?? 8)
+export const EPISODIC_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_EPISODIC_MIN_NEW_CHUNKS ?? 10)
 
 /** Observability dashboard (Layer 8.5) — localhost viewer, launched on demand. */
 export const MEMWISE_DASH_PORT: number = Number(process.env.MEMWISE_DASH_PORT ?? 4242)
