@@ -1,5 +1,7 @@
 import { readFileSync } from 'node:fs'
-import type { RawHookPayload } from '../adapters/common.js'
+import type { RawHookPayload, ReplayEvent, TranscriptHint, TranscriptRead } from '../adapters/common.js'
+
+export type { ReplayEvent, TranscriptRead } from '../adapters/common.js'
 
 /**
  * Reads a Claude Code `.jsonl` transcript and re-emits it as the live hook payloads the
@@ -9,17 +11,6 @@ import type { RawHookPayload } from '../adapters/common.js'
  * Transcripts have no Stop entry, so a turn runs from one real user prompt to the next; a
  * synthetic Stop is emitted at each boundary (and at EOF) carrying the last assistant text.
  */
-
-export interface ReplayEvent {
-  payload: RawHookPayload
-  ts: number
-}
-
-export interface TranscriptRead {
-  events: ReplayEvent[]
-  sessionId: string
-  projectPath: string
-}
 
 interface ContentPart {
   type?: string
@@ -76,7 +67,7 @@ function resultText(content: unknown): string {
   }
 }
 
-export function readTranscript(path: string): TranscriptRead {
+export function readTranscript(path: string, hint?: TranscriptHint): TranscriptRead {
   const entries: RawEntry[] = []
   for (const line of readFileSync(path, 'utf8').split('\n')) {
     const s = line.trim()
@@ -104,8 +95,8 @@ export function readTranscript(path: string): TranscriptRead {
 
   // Pass 2: emit payloads in order.
   const events: ReplayEvent[] = []
-  let sessionId = 'replay'
-  let projectPath = process.cwd()
+  let sessionId = hint?.sessionId ?? 'replay'
+  let projectPath = hint?.projectPath ?? process.cwd()
   let open = false
   let lastAssistantText = ''
   let lastTs = Date.now()

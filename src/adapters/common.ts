@@ -6,6 +6,45 @@ export interface AdapterContext {
 
 export type RawHookPayload = Record<string, unknown>
 
+/** The coding agents MemWise adapts to. */
+export type AgentSource = CaptureEvent['source']
+
+/** One replayed hook payload from a transcript, with its timestamp. */
+export interface ReplayEvent {
+  payload: RawHookPayload
+  ts: number
+}
+
+/** Result of reading an on-disk transcript: replayable payloads + resolved scope. */
+export interface TranscriptRead {
+  events: ReplayEvent[]
+  sessionId: string
+  projectPath: string
+}
+
+/** Scope carried from the live hook payload into a transcript read. Some agents' transcript
+ *  entries don't repeat session/project identity (Cursor), so the hook supplies the defaults. */
+export interface TranscriptHint {
+  sessionId?: string
+  projectPath?: string
+}
+
+/**
+ * Strategy — one per coding agent. Encapsulates the two agent-specific operations so the
+ * capture pipeline (turn-capture.ts) can stay agent-agnostic:
+ *   1. parseHook      — normalize ONE live (or replayed) hook payload → CaptureEvent
+ *   2. readTranscript — turn that agent's on-disk transcript into replayable hook payloads
+ *
+ * The two compose: readTranscript emits payloads that this same adapter's parseHook consumes,
+ * so replay drives the exact path real hooks will. Concrete strategies live in
+ * claude-code.ts / codex.ts / cursor.ts; the registry that selects one is in index.ts.
+ */
+export interface AgentAdapter {
+  readonly source: AgentSource
+  parseHook(raw: RawHookPayload, ctx: AdapterContext): CaptureEvent | null
+  readTranscript(path: string, hint?: TranscriptHint): TranscriptRead
+}
+
 export function asString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }

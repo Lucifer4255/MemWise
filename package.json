@@ -5,11 +5,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts && npx tsx src/parser/parser.test.ts && npx tsx src/retrieval/retrieval.test.ts && npx tsx src/replay/replay.test.ts && npx tsx src/cli/hook.test.ts && npx tsx src/adapters/adapters.test.ts && npx tsx src/dashboard/dashboard.test.ts",
+    "test": "npx tsx src/smoke.ts && npx tsx src/store/store.test.ts && npx tsx src/bracket.test.ts && npx tsx src/parser/parser.test.ts && npx tsx src/retrieval/retrieval.test.ts && npx tsx src/replay/replay.test.ts && npx tsx src/replay/transcript-readers.test.ts && npx tsx src/cli/hook.test.ts && npx tsx src/adapters/adapters.test.ts && npx tsx src/dashboard/dashboard.test.ts",
     "test:hook": "npx tsx src/cli/hook.test.ts",
     "test:adapters": "npx tsx src/adapters/adapters.test.ts",
     "test:retrieval": "npx tsx src/retrieval/retrieval.test.ts",
     "test:replay": "npx tsx src/replay/replay.test.ts",
+    "test:readers": "npx tsx src/replay/transcript-readers.test.ts",
     "test:dashboard": "npx tsx src/dashboard/dashboard.test.ts",
     "replay": "npx tsx src/replay/replay.ts",
     "memwise-mcp": "npx tsx src/mcp/query-server.ts",

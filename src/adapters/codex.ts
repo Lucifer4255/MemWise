@@ -1,3 +1,4 @@
+import { readCodexRollout } from '../replay/codex-transcript.js'
 import type { CaptureEvent, HookKind } from '../types.js'
 import {
   asString,
@@ -5,6 +6,7 @@ import {
   isCodexToolFailure,
   toolInputFromRaw,
   type AdapterContext,
+  type AgentAdapter,
   type RawHookPayload,
 } from './common.js'
 
@@ -16,6 +18,9 @@ const CODEX_HOOK_MAP: Record<string, HookKind> = {
   PostToolUse: 'TOOL',
   PostToolUseFailure: 'TOOL_FAILED',
   PostToolBatch: 'TOOL_BATCH',
+  // MessageDisplay is replay-only: Codex has no live narration hook, but the rollout transcript
+  // carries assistant text, which readCodexRollout re-emits so segments get their intent.
+  MessageDisplay: 'NARRATION',
   Stop: 'TURN_END',
   PreCompact: 'PRE_COMPACT',
   PostCompact: 'POST_COMPACT',
@@ -31,6 +36,13 @@ export function parseCodexHook(raw: RawHookPayload, ctx: AdapterContext): Captur
 
   if (hook === 'PROMPT') {
     return { ...base, message: asString(raw.prompt) }
+  }
+
+  if (hook === 'NARRATION') {
+    // Replay-only (see CODEX_HOOK_MAP). Assistant text recovered from the rollout transcript.
+    const text = asString(raw.text)
+    if (!text) return null
+    return { ...base, message: text }
   }
 
   if (hook === 'TURN_END') {
@@ -61,4 +73,11 @@ export function parseCodexHook(raw: RawHookPayload, ctx: AdapterContext): Captur
   }
 
   return base
+}
+
+/** Concrete Strategy for Codex. */
+export const codexAdapter: AgentAdapter = {
+  source: 'codex',
+  parseHook: parseCodexHook,
+  readTranscript: readCodexRollout,
 }

@@ -1,5 +1,5 @@
 import { parseHook } from '../adapters/index.js'
-import type { RawHookPayload } from '../adapters/common.js'
+import type { RawHookPayload, TranscriptHint } from '../adapters/common.js'
 import { captureFromTranscript } from '../capture/turn-capture.js'
 import { getDefaultStore } from '../db.js'
 import { projectIdFromPath } from '../project.js'
@@ -26,11 +26,16 @@ export async function handleHook(
   const { store } = getDefaultStore()
 
   const transcriptPath = (raw.transcript_path as string | undefined) ?? event?.transcriptPath ?? null
+  // Scope fallback for transcripts whose entries don't carry session/project (Cursor).
+  const hint: TranscriptHint = {
+    ...(event?.sessionId ? { sessionId: event.sessionId } : {}),
+    ...(event?.projectPath ? { projectPath: event.projectPath } : {}),
+  }
 
   // ── SESSION_START: inject context, then catch up anything past the cursor ──
   if (event?.hook === 'SESSION_START') {
     await injectContext(event, store, true)
-    if (transcriptPath) await safeCapture(transcriptPath, store)
+    if (transcriptPath) await safeCapture(transcriptPath, store, source, hint)
     return
   }
 
@@ -61,13 +66,18 @@ export async function handleHook(
   // For UserPromptSubmit this captures the *previous* turn (the new prompt isn't finalized yet),
   // which is exactly the cancelled-turn safety net.
   if (transcriptPath) {
-    await safeCapture(transcriptPath, store)
+    await safeCapture(transcriptPath, store, source, hint)
   }
 }
 
-async function safeCapture(transcriptPath: string, store: ReturnType<typeof getDefaultStore>['store']): Promise<void> {
+async function safeCapture(
+  transcriptPath: string,
+  store: ReturnType<typeof getDefaultStore>['store'],
+  source: CaptureEvent['source'],
+  hint: TranscriptHint,
+): Promise<void> {
   try {
-    await captureFromTranscript(transcriptPath, { store })
+    await captureFromTranscript(transcriptPath, { store, source, hint })
   } catch (err) {
     process.stderr.write(`[memwise] capture failed: ${String(err)}\n`)
   }

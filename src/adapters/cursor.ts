@@ -1,9 +1,11 @@
+import { readCursorTranscript } from '../replay/cursor-transcript.js'
 import type { CaptureEvent, HookKind } from '../types.js'
 import {
   asString,
   baseCaptureFields,
   toolInputFromRaw,
   type AdapterContext,
+  type AgentAdapter,
   type RawHookPayload,
 } from './common.js'
 
@@ -75,4 +77,11 @@ export function parseCursorHook(raw: RawHookPayload, ctx: AdapterContext): Captu
 
 function statusIsError(raw: RawHookPayload): boolean {
   return asString(raw.status) === 'error'
+}
+
+/** Concrete Strategy for Cursor. */
+export const cursorAdapter: AgentAdapter = {
+  source: 'cursor',
+  parseHook: parseCursorHook,
+  readTranscript: readCursorTranscript,
 }

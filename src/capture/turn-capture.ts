@@ -1,4 +1,5 @@
-import { parseClaudeCodeHook } from '../adapters/claude-code.js'
+import { getAdapter } from '../adapters/index.js'
+import type { AgentSource, TranscriptHint } from '../adapters/common.js'
 import { EPISODIC_MIN_NEW_CHUNKS } from '../config.js'
 import { Embedder } from '../embed/embedder.js'
 import type { EmbedFn } from '../embed/ollama-client.js'
@@ -6,7 +7,6 @@ import { Enricher } from '../enrich/enricher.js'
 import { maybeConsolidate } from '../enrich/episodic.js'
 import { BracketManager } from '../bracket.js'
 import { projectIdFromPath } from '../project.js'
-import { readTranscript } from '../replay/transcript-reader.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
 import type { FinalizedMessage } from '../types.js'
 import { persistMessage } from './persist.js'
@@ -19,6 +19,10 @@ export interface CaptureDeps {
   enricher?: Enricher
   /** Skip the opportunistic Job 2 episodic pass (tests). */
   skipConsolidate?: boolean
+  /** Which agent's transcript this is (selects the reader/parser Strategy). */
+  source?: AgentSource
+  /** Scope fallback from the live hook payload (Cursor transcripts lack session/project). */
+  hint?: TranscriptHint
 }
 
 export interface CaptureResult {
@@ -46,8 +50,9 @@ export async function captureFromTranscript(
   const { store } = deps
   const embedder = deps.embedder ?? new Embedder(deps.embedFn)
   const enricher = deps.enricher ?? new Enricher()
+  const adapter = getAdapter(deps.source ?? 'claude-code')
 
-  const { events, sessionId, projectPath } = readTranscript(transcriptPath)
+  const { events, sessionId, projectPath } = adapter.readTranscript(transcriptPath, deps.hint)
   const projectId = projectIdFromPath(projectPath)
 
   const brackets = new BracketManager()
@@ -56,7 +61,7 @@ export async function captureFromTranscript(
   let turns = 0
 
   for (const { payload, ts } of events) {
-    const ev = parseClaudeCodeHook(payload, { seq: seq++ })
+    const ev = adapter.parseHook(payload, { seq: seq++ })
     if (!ev) continue // unknown hook or non-final narration delta
     ev.sessionId = sessionId
     ev.ts = ts

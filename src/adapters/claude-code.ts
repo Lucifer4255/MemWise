@@ -1,9 +1,11 @@
+import { readTranscript } from '../replay/transcript-reader.js'
 import type { CaptureEvent, HookKind } from '../types.js'
 import {
   asString,
   baseCaptureFields,
   toolInputFromRaw,
   type AdapterContext,
+  type AgentAdapter,
   type RawHookPayload,
 } from './common.js'
 
@@ -96,4 +98,11 @@ export function parseClaudeCodeHook(raw: RawHookPayload, ctx: AdapterContext): C
   }
 
   return base
+}
+
+/** Concrete Strategy for Claude Code. */
+export const claudeCodeAdapter: AgentAdapter = {
+  source: 'claude-code',
+  parseHook: parseClaudeCodeHook,
+  readTranscript,
 }

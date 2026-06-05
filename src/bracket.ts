@@ -83,6 +83,8 @@ export function codeChangesFromToolEvent(event: CaptureEvent): ResolvedChanges {
 }
 
 function inferChangeType(event: CaptureEvent): CodeChange['changeType'] {
+  // Cursor Delete removes a file outright.
+  if (event.toolName === 'Delete') return 'deleted'
   // Cursor afterFileEdit gives an `edits: [{old_string, new_string}]` array with no
   // tool_name. A non-empty old_string means we replaced existing content (modified);
   // all-empty old_strings mean new content (added). This beats defaulting every Cursor

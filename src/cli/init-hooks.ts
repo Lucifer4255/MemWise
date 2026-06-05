@@ -82,6 +82,16 @@ function writeClaudeHooks(bin: string, source: 'claude-code' | 'codex', dir: str
     }
     hooks[event] = existing
   }
+  // Prune memwise entries from events we no longer register (e.g. old per-tool hooks from a prior
+  // init), so re-running init heals stale config without touching the user's own hooks.
+  for (const event of Object.keys(hooks)) {
+    if (CC_HOOKS.includes(event)) continue
+    const kept = (hooks[event] ?? [])
+      .map(g => ({ ...g, hooks: (g.hooks ?? []).filter(h => !h.command?.includes('memwise')) }))
+      .filter(g => g.hooks.length > 0)
+    if (kept.length) hooks[event] = kept
+    else delete hooks[event]
+  }
   settings.hooks = hooks
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
   return settingsPath
@@ -100,6 +110,14 @@ function writeCursorHooks(bin: string, dir: string): string {
     const already = existing.some(h => h.command?.includes('memwise'))
     if (!already) existing.push({ command: `${bin} hook --source cursor` })
     hooks[event] = existing
+  }
+  // Prune memwise entries from events we no longer register (heals stale per-tool hooks from a
+  // prior init), preserving any non-memwise hooks the user added.
+  for (const event of Object.keys(hooks)) {
+    if (CURSOR_HOOKS.includes(event)) continue
+    const kept = (hooks[event] ?? []).filter(h => !h.command?.includes('memwise'))
+    if (kept.length) hooks[event] = kept
+    else delete hooks[event]
   }
   cfg.hooks = hooks
   writeFileSync(hooksPath, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
