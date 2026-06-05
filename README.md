@@ -282,18 +282,3 @@ npm run test:adapters # adapter strategy tests
 npm run bench         # p99 benchmark
 ```
 
----
-
-## vs agentmemory
-
-| | MemWise | agentmemory |
-|---|---|---|
-| **Write model** | one SQLite transaction per turn, ~4ms flat | full in-memory index rebuild per batch (177ms @ 240 rows, 1.7s @ 10k) |
-| **Memory unit** | spine (one coherent node per prompt) | per-observation fragments |
-| **Code identity** | tree-sitter AST (deterministic symbols) | LLM-inferred |
-| **Retrieval** | vec KNN + FTS5 + RRF + parent chain traversal | BM25 + vector + graph |
-| **Local-first** | yes — SQLite, no network | yes |
-| **Multi-agent** | Claude Code + Codex + Cursor, unified store | Claude Code only |
-| **Durability** | SQLite on disk, survives process kill | in-memory, lost on crash |
-
-Benchmark: `memwise bench` (harness in `src/bench/`). Headline uses `all-minilm` so any win is architectural.
