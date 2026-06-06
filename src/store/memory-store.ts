@@ -63,7 +63,7 @@ export interface CaptureCursor {
   ts: number
 }
 
-export type TelemetryKind = 'message' | 'enrich' | 'embed' | 'job2'
+export type TelemetryKind = 'message' | 'enrich' | 'embed' | 'job2' | 'job3' | 'job4'
 
 export interface TelemetryEvent {
   id: number
@@ -88,7 +88,33 @@ export interface ProjectSummary {
   projectId: string
   messages: number
   summaries: number
+  facts: number
+  patterns: number
   lastTs: number
+}
+
+/** Semantic tier (M2): a durable extracted fact about the project. `support` counts how many times
+ *  it was re-observed (reinforcement); `lastSeen` drives time-decay. */
+export interface SemanticFact {
+  id: string
+  projectId: string
+  fact: string
+  confidence: number
+  support: number
+  createdTs: number
+  lastSeen: number
+}
+
+/** Procedural tier (M2): a recurring workflow/decision pattern. `sequence` is JSON-encoded steps;
+ *  `freq` counts reinforcement; `lastSeen` drives time-decay. */
+export interface ProceduralPattern {
+  id: string
+  projectId: string
+  pattern: string
+  sequence: string
+  freq: number
+  createdTs: number
+  lastSeen: number
 }
 
 export interface MemoryStore {
@@ -104,6 +130,16 @@ export interface MemoryStore {
   queryRecentMessages(limit: number): RecentMessage[]
   queryRecentMessagesScoped(projectId: string, limit: number): RecentMessage[]
   queryProjects(): ProjectSummary[]
+  // ── semantic tier (M2) ────────────────────────────────────────────────────────────────────
+  upsertSemanticFact(fact: Omit<SemanticFact, 'support' | 'createdTs'>): void
+  reinforceSemanticFact(id: string, confidence: number, now: number): void
+  querySemanticFacts(projectId: string, limit: number): SemanticFact[]
+  deleteSemanticFact(id: string): void
+  // ── procedural tier (M2) ──────────────────────────────────────────────────────────────────
+  upsertProcedural(p: Omit<ProceduralPattern, 'freq' | 'createdTs'>): void
+  reinforceProcedural(id: string, now: number): void
+  queryProcedural(projectId: string, limit: number): ProceduralPattern[]
+  deleteProcedural(id: string): void
   /** Count chunks for a project newer than `sinceTs` — Job 2's "enough new work?" gate. */
   countChunksSince(projectId: string, sinceTs: number): number
   insertPromptSig(sig: PromptSig): void

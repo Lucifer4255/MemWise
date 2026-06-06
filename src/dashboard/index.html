@@ -169,11 +169,33 @@ function renderEpisodic(s) {
     '</div>';
 }
 
+function renderSemantic(f) {
+  const support = (f.support || 0) + 1;
+  return '<div class="card">' +
+    '<div class="card-meta">' +
+      '<span>seen ×'+support+'</span>' +
+      '<span>conf '+(f.confidence != null ? f.confidence.toFixed(2) : '—')+'</span>' +
+      '<span>'+fmtTime(f.lastSeen)+'</span>' +
+    '</div>' +
+    '<div class="card-summary">'+esc(f.fact)+'</div>' +
+    '</div>';
+}
+
+function renderProcedural(p) {
+  let steps = [];
+  try { const a = JSON.parse(p.sequence); if (Array.isArray(a)) steps = a.map(String); } catch (e) {}
+  const seq = steps.length ? '<div class="card-text">'+steps.map(esc).join(' → ')+'</div>' : '';
+  return '<div class="card">' +
+    '<div class="card-meta"><span>freq ×'+(p.freq||0)+'</span><span>'+fmtTime(p.lastSeen)+'</span></div>' +
+    '<div class="card-prompt">'+esc(p.pattern)+'</div>' + seq +
+    '</div>';
+}
+
 const TIER_EMPTY = {
   normal:     'No memories yet for this project.\nWork a turn in an agent, then refresh.',
   episodic:   'No episodic summaries yet.\nRun <code>memwise consolidate</code> after a session.',
-  semantic:   'Semantic facts not yet captured.\nArrives in Milestone 2.',
-  procedural: 'Procedural patterns not yet captured.\nArrives in Milestone 2.',
+  semantic:   'No semantic facts yet.\nThey accrue as you work — or run <code>memwise consolidate</code>.',
+  procedural: 'No procedural patterns yet.\nThey accrue as you work — or run <code>memwise consolidate</code>.',
 };
 
 // ── load memories for active project + tier ───────────────────────────────────
@@ -190,8 +212,10 @@ async function loadMemories() {
     cards.innerHTML = '<div class="empty">'+TIER_EMPTY[activeTier]+'</div>';
     return;
   }
-  if (activeTier === 'normal')   { cards.innerHTML = rows.map(renderNormal).join('');   return; }
-  if (activeTier === 'episodic') { cards.innerHTML = rows.map(renderEpisodic).join(''); return; }
+  if (activeTier === 'normal')     { cards.innerHTML = rows.map(renderNormal).join('');     return; }
+  if (activeTier === 'episodic')   { cards.innerHTML = rows.map(renderEpisodic).join('');   return; }
+  if (activeTier === 'semantic')   { cards.innerHTML = rows.map(renderSemantic).join('');   return; }
+  if (activeTier === 'procedural') { cards.innerHTML = rows.map(renderProcedural).join(''); return; }
   cards.innerHTML = '<div class="empty">'+TIER_EMPTY[activeTier]+'</div>';
 }
 

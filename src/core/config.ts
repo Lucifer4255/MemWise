@@ -61,5 +61,18 @@ export const ENRICH_ENABLED: 'on' | 'off' | 'auto' =
 /** Job 2 episodic consolidation fires once this many new chunks land since the last nightshift row. */
 export const EPISODIC_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_EPISODIC_MIN_NEW_CHUNKS ?? 10)
 
+/**
+ * Semantic (Job 3) & Procedural (Job 4) consolidation thresholds + memory lifecycle (M2).
+ * Higher than episodic so they run less often (durable facts/workflows change slowly).
+ * Decay/eviction are public concepts (Ebbinghaus forgetting curve, spaced repetition) — see
+ * src/enrich/decay.ts and memory/agentmemory-memory-types.md.
+ */
+export const SEMANTIC_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_SEMANTIC_MIN_NEW_CHUNKS ?? 15)
+export const PROCEDURAL_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_PROCEDURAL_MIN_NEW_CHUNKS ?? 20)
+/** Decay half-life in days: a fact untouched this long loses ~half its score (× support weighting). */
+export const MEMORY_HALFLIFE_DAYS: number = Number(process.env.MEMWISE_MEMORY_HALFLIFE_DAYS ?? 30)
+/** Eviction floor: facts/patterns whose decay score falls below this are pruned at job end. */
+export const MEMORY_EVICT_THRESHOLD: number = Number(process.env.MEMWISE_MEMORY_EVICT_THRESHOLD ?? 0.15)
+
 /** Observability dashboard (Layer 8.5) — localhost viewer, launched on demand. */
 export const MEMWISE_DASH_PORT: number = Number(process.env.MEMWISE_DASH_PORT ?? 4242)

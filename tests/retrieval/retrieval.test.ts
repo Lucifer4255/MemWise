@@ -268,6 +268,40 @@ async function main(): Promise<void> {
     }
   }
 
+  // M2: durable tiers render in session mode (Known facts + Workflows)
+  {
+    const { store: s } = openDatabase(':memory:')
+    const pid = 'proj-durable'
+    const now = Date.now()
+    seedSpine(s, 'd'.repeat(64), pid, {
+      promptText: 'work', chunkText: 'did some work', symbol: 'doWork', ts: now,
+    })
+    s.upsertSemanticFact({ id: 'k1', projectId: pid, fact: 'Persistence uses better-sqlite3', confidence: 0.9, lastSeen: now })
+    s.upsertProcedural({ id: 'w1', projectId: pid, pattern: 'add endpoint', sequence: JSON.stringify(['route', 'test']), lastSeen: now })
+    const result = await retrieve('current work', { store: s, projectId: pid, mode: 'session' })
+    const ok =
+      result.block.includes('Known facts') &&
+      result.block.includes('better-sqlite3') &&
+      result.block.includes('Workflows') &&
+      result.block.includes('route → test')
+    results.push(ok ? pass('durable tiers render', 'Known facts + Workflows present') : fail('durable tiers render', result.block.slice(0, 300)))
+  }
+
+  // M2: durable tiers are trimmed FIRST (before load-bearing Relevant code) under tight budget
+  {
+    const bundle: ContextBundle = {
+      anchors: [{ sig: 'z'.repeat(64), text: 'x', ts: 1, sources: [] }],
+      changes: [{ sig: 'z'.repeat(64), file: 'core.ts', symbol: 'criticalFn', changeType: 'modified' as const }],
+      chunks: [], parentChains: [], symbolChanges: [], watchEdges: [], mode: 'semantic',
+      semanticFacts: Array.from({ length: 30 }, (_, i) => ({
+        id: `f${i}`, projectId: 'p', fact: `durable fact number ${i} with some length to it`, confidence: 0.8, support: 0, createdTs: 1, lastSeen: 1,
+      })),
+    }
+    const { block } = formatBundle(bundle, 60) // tight budget → facts must go before Relevant code
+    const ok = block.includes('criticalFn') && !block.includes('durable fact number 29')
+    results.push(ok ? pass('durable tiers trim first', 'Known facts trimmed before Relevant code') : fail('durable tiers trim first', block.slice(0, 200)))
+  }
+
   // Timing (cold, no Ollama)
   {
     const t0 = performance.now()

@@ -71,6 +71,11 @@ export async function retrieve(
     bundle.recentPrompts = store.queryRecentPromptSigs(projectId, hybridLimit)
     bundle.latestSummary = store.queryLatestSessionSummary(projectId)
   }
+  // Durable tiers (M2): surface the project's top facts/workflows in semantic + session modes.
+  if (mode === 'session' || mode === 'semantic') {
+    bundle.semanticFacts = store.querySemanticFacts(projectId, 8)
+    bundle.proceduralPatterns = store.queryProcedural(projectId, 5)
+  }
   const { block, tokenCount } = formatBundle(bundle, maxTokens)
 
   return {

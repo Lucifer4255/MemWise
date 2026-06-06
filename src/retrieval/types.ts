@@ -1,5 +1,5 @@
 import type { EmbedFn } from '../embed/ollama-client.js'
-import type { Change, ContextChunk, MemoryStore, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
+import type { Change, ContextChunk, MemoryStore, ProceduralPattern, PromptSig, SemanticFact, SessionSummary, SymbolDep } from '../store/memory-store.js'
 
 export type RetrieveMode = 'recency' | 'symbol' | 'semantic' | 'session'
 
@@ -24,6 +24,10 @@ export interface ContextBundle {
   recentPrompts?: PromptSig[]
   /** Session-recap mode only: latest daemon-written summary for the project (Layer 8). */
   latestSummary?: SessionSummary
+  /** Durable semantic facts for the project (M2) → "Known facts" section. */
+  semanticFacts?: SemanticFact[]
+  /** Durable procedural patterns for the project (M2) → "Workflows" section. */
+  proceduralPatterns?: ProceduralPattern[]
 }
 
 export interface RetrieveOptions {

@@ -128,18 +128,27 @@ program
     await launchDashboard(opts.port ? Number(opts.port) : undefined)
   })
 
-// ── consolidate (Job 2 on demand) ───────────────────────────────────────────────────────────
+// ── consolidate (Jobs 2/3/4 on demand) ──────────────────────────────────────────────────────
 program
   .command('consolidate')
-  .description('Run episodic consolidation now (merge recent notes → a nightshift session summary)')
+  .description('Run consolidation now: episodic summary (Job 2), semantic facts (Job 3), procedural patterns (Job 4)')
   .option('--project <path>', 'Project path for scoping', process.cwd())
-  .action(async (opts: { project: string }) => {
+  .option('--only <job>', 'Run a single job: episodic | semantic | procedural')
+  .action(async (opts: { project: string; only?: string }) => {
     const { maybeConsolidate } = await import('../enrich/episodic.js')
+    const { maybeExtractSemantic } = await import('../enrich/semantic.js')
+    const { maybeExtractProcedural } = await import('../enrich/procedural.js')
     const { getDefaultStore } = await import('../core/db.js')
     const { projectIdFromPath } = await import('../core/project.js')
     const { store } = getDefaultStore()
-    const wrote = await maybeConsolidate(store, projectIdFromPath(opts.project), { minNewChunks: 1 })
-    console.log(wrote ? '[memwise] nightshift summary written' : '[memwise] nothing to consolidate (or no chat model)')
+    const projectId = projectIdFromPath(opts.project)
+    const only = opts.only
+    const report = (name: string, wrote: boolean) =>
+      console.log(`[memwise] ${name}: ${wrote ? 'wrote' : 'nothing (gate not met or no chat model)'}`)
+
+    if (!only || only === 'episodic') report('episodic', await maybeConsolidate(store, projectId, { minNewChunks: 1 }))
+    if (!only || only === 'semantic') report('semantic', await maybeExtractSemantic(store, projectId, { minNewChunks: 1 }))
+    if (!only || only === 'procedural') report('procedural', await maybeExtractProcedural(store, projectId, { minNewChunks: 1 }))
     process.exit(0)
   })
 

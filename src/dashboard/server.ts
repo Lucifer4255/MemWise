@@ -77,8 +77,12 @@ export function createDashboard(opts: DashboardOptions = {}): Server {
         data = store.queryRecentSessionSummaries(project, limit)
       } else if (tier === 'normal') {
         data = store.queryRecentMessagesScoped(project, limit)
+      } else if (tier === 'semantic') {
+        data = store.querySemanticFacts(project, limit)
+      } else if (tier === 'procedural') {
+        data = store.queryProcedural(project, limit)
       } else {
-        data = [] // semantic / procedural: populated in M2
+        data = []
       }
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify(data))

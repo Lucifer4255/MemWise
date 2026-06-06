@@ -46,6 +46,9 @@ async function main(): Promise<void> {
   seedMessage(store, projectId, 'b'.repeat(64), 'wrote tests for retry path', 1_700_000_100)
   store.insertTelemetry('embed', { sig: 'a'.repeat(64), ms: 40, dim: 384 })
   store.insertTelemetry('embed', { sig: 'b'.repeat(64), ms: 60, dim: 384 })
+  // Seed durable tiers (M2) so the semantic/procedural tabs have real rows.
+  store.upsertSemanticFact({ id: 'fact-1', projectId, fact: 'retry uses exponential backoff', confidence: 0.9, lastSeen: Date.now() })
+  store.upsertProcedural({ id: 'pat-1', projectId, pattern: 'add retry', sequence: JSON.stringify(['wrap', 'backoff', 'test']), lastSeen: Date.now() })
 
   const server = createDashboard({ store, port: 4391, pollMs: 80 })
   await new Promise(r => setTimeout(r, 120))
@@ -133,14 +136,14 @@ async function main(): Promise<void> {
     }
   }
 
-  // ── /api/memories?tier=semantic and procedural → [] stubs ──
+  // ── /api/memories?tier=semantic and procedural → real rows (M2) ──
   {
-    const sem  = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=semantic`))  as unknown[]
-    const proc = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=procedural`)) as unknown[]
-    if (Array.isArray(sem) && sem.length === 0 && Array.isArray(proc) && proc.length === 0) {
-      results.push(pass('/api/memories stubs', 'semantic + procedural return []'))
+    const sem  = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=semantic`))  as { fact: string }[]
+    const proc = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=procedural`)) as { pattern: string }[]
+    if (sem.length === 1 && sem[0]!.fact.includes('backoff') && proc.length === 1 && proc[0]!.pattern === 'add retry') {
+      results.push(pass('/api/memories semantic+procedural', '1 fact + 1 pattern returned'))
     } else {
-      results.push(fail('/api/memories stubs', `sem=${JSON.stringify(sem)} proc=${JSON.stringify(proc)}`))
+      results.push(fail('/api/memories semantic+procedural', `sem=${JSON.stringify(sem)} proc=${JSON.stringify(proc)}`))
     }
   }
 

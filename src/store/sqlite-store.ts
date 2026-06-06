@@ -1,14 +1,17 @@
 import type Database from 'better-sqlite3'
 import { embeddingToBuffer } from '../embed/vector.js'
 import { fuseRankedLists } from '../core/rrf.js'
+import { decayScore } from '../core/decay.js'
 import type {
   CaptureCursor,
   Change,
   ContextChunk,
   MemoryStore,
+  ProceduralPattern,
   ProjectSummary,
   PromptSig,
   RecentMessage,
+  SemanticFact,
   SessionSummary,
   Source,
   SymbolDep,
@@ -264,24 +267,143 @@ export class SqliteStore implements MemoryStore {
   }
 
   queryProjects(): ProjectSummary[] {
+    // Counts via correlated subqueries (not joins) so the per-tier rows don't multiply each other.
     const rows = this.db
       .prepare(
         `SELECT p.project_id,
                 COUNT(DISTINCT p.sig) AS messages,
-                COUNT(DISTINCT s.id)  AS summaries,
-                MAX(p.ts)             AS last_ts
+                (SELECT COUNT(*) FROM session_summary s WHERE s.project_id = p.project_id) AS summaries,
+                (SELECT COUNT(*) FROM semantic_fact f WHERE f.project_id = p.project_id)   AS facts,
+                (SELECT COUNT(*) FROM procedural pr WHERE pr.project_id = p.project_id)    AS patterns,
+                MAX(p.ts) AS last_ts
          FROM prompt_sig p
-         LEFT JOIN session_summary s ON s.project_id = p.project_id
          GROUP BY p.project_id
          ORDER BY last_ts DESC`,
       )
-      .all() as { project_id: string; messages: number; summaries: number; last_ts: number }[]
+      .all() as {
+      project_id: string
+      messages: number
+      summaries: number
+      facts: number
+      patterns: number
+      last_ts: number
+    }[]
     return rows.map(r => ({
       projectId: r.project_id,
       messages: r.messages,
       summaries: r.summaries,
+      facts: r.facts,
+      patterns: r.patterns,
       lastTs: r.last_ts,
     }))
+  }
+
+  // ── semantic tier (M2) ────────────────────────────────────────────────────────────────────
+  upsertSemanticFact(fact: Omit<SemanticFact, 'support' | 'createdTs'>): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO semantic_fact (id, project_id, fact, confidence, support, created_ts, last_seen)
+         VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      )
+      .run(fact.id, fact.projectId, fact.fact, fact.confidence, fact.lastSeen, fact.lastSeen)
+  }
+
+  reinforceSemanticFact(id: string, confidence: number, now: number): void {
+    this.db
+      .prepare(
+        `UPDATE semantic_fact
+         SET support = support + 1, confidence = MAX(confidence, ?), last_seen = ?
+         WHERE id = ?`,
+      )
+      .run(confidence, now, id)
+  }
+
+  querySemanticFacts(projectId: string, limit: number): SemanticFact[] {
+    if (limit <= 0) return []
+    // Fetch the project's facts (bounded), rank by decay score in JS (avoids depending on a SQLite
+    // exp() build), return the top `limit`.
+    const rows = this.db
+      .prepare(
+        `SELECT id, project_id, fact, confidence, support, created_ts, last_seen
+         FROM semantic_fact WHERE project_id = ? ORDER BY last_seen DESC LIMIT 500`,
+      )
+      .all(projectId) as {
+      id: string
+      project_id: string
+      fact: string
+      confidence: number
+      support: number
+      created_ts: number
+      last_seen: number
+    }[]
+    const now = Date.now()
+    return rows
+      .map(r => ({
+        id: r.id,
+        projectId: r.project_id,
+        fact: r.fact,
+        confidence: r.confidence,
+        support: r.support,
+        createdTs: r.created_ts,
+        lastSeen: r.last_seen,
+      }))
+      .sort((a, b) => decayScore(b.support, b.lastSeen, now) - decayScore(a.support, a.lastSeen, now))
+      .slice(0, limit)
+  }
+
+  deleteSemanticFact(id: string): void {
+    this.db.prepare(`DELETE FROM semantic_fact WHERE id = ?`).run(id)
+  }
+
+  // ── procedural tier (M2) ──────────────────────────────────────────────────────────────────
+  upsertProcedural(p: Omit<ProceduralPattern, 'freq' | 'createdTs'>): void {
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO procedural (id, project_id, pattern, sequence, freq, created_ts, last_seen)
+         VALUES (?, ?, ?, ?, 0, ?, ?)`,
+      )
+      .run(p.id, p.projectId, p.pattern, p.sequence, p.lastSeen, p.lastSeen)
+  }
+
+  reinforceProcedural(id: string, now: number): void {
+    this.db
+      .prepare(`UPDATE procedural SET freq = freq + 1, last_seen = ? WHERE id = ?`)
+      .run(now, id)
+  }
+
+  queryProcedural(projectId: string, limit: number): ProceduralPattern[] {
+    if (limit <= 0) return []
+    const rows = this.db
+      .prepare(
+        `SELECT id, project_id, pattern, sequence, freq, created_ts, last_seen
+         FROM procedural WHERE project_id = ? ORDER BY last_seen DESC LIMIT 500`,
+      )
+      .all(projectId) as {
+      id: string
+      project_id: string
+      pattern: string
+      sequence: string
+      freq: number
+      created_ts: number
+      last_seen: number
+    }[]
+    const now = Date.now()
+    return rows
+      .map(r => ({
+        id: r.id,
+        projectId: r.project_id,
+        pattern: r.pattern,
+        sequence: r.sequence,
+        freq: r.freq,
+        createdTs: r.created_ts,
+        lastSeen: r.last_seen,
+      }))
+      .sort((a, b) => decayScore(b.freq, b.lastSeen, now) - decayScore(a.freq, a.lastSeen, now))
+      .slice(0, limit)
+  }
+
+  deleteProcedural(id: string): void {
+    this.db.prepare(`DELETE FROM procedural WHERE id = ?`).run(id)
   }
 
   countChunksSince(projectId: string, sinceTs: number): number {

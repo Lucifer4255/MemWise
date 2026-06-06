@@ -8,7 +8,7 @@ import { EMBED_DIM } from '../core/config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
@@ -113,20 +113,32 @@ CREATE TABLE IF NOT EXISTS session_summary (
 );
 CREATE INDEX IF NOT EXISTS idx_session_summary_project ON session_summary(project_id, ts DESC);
 
+-- v7: Semantic tier — durable extracted facts. project_id scopes to a repo; support counts
+-- reinforcement (re-observation); last_seen drives time-decay (see src/enrich/decay.ts).
 CREATE TABLE IF NOT EXISTS semantic_fact (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   fact TEXT NOT NULL,
   confidence REAL NOT NULL,
   support INTEGER NOT NULL DEFAULT 0,
+  created_ts INTEGER NOT NULL DEFAULT 0,
   last_seen INTEGER NOT NULL
 );
 
+-- v7: Procedural tier — recurring workflows/decision patterns. sequence is JSON-encoded steps;
+-- freq counts reinforcement; last_seen drives time-decay.
 CREATE TABLE IF NOT EXISTS procedural (
   id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
   pattern TEXT NOT NULL,
   sequence TEXT NOT NULL,
-  freq INTEGER NOT NULL DEFAULT 0
+  freq INTEGER NOT NULL DEFAULT 0,
+  created_ts INTEGER NOT NULL DEFAULT 0,
+  last_seen INTEGER NOT NULL DEFAULT 0
 );
+-- NOTE: indexes on the v7 project_id/last_seen columns are created in migrateAdditiveColumns(),
+-- AFTER the ALTER TABLE that adds those columns to a pre-v7 DB — creating them here would fail with
+-- "no such column: project_id" on an existing DB where CREATE TABLE IF NOT EXISTS is a no-op.
 
 -- v5: per-session transcript read cursor. Capture reads the transcript from here forward, so
 -- a cancelled turn (no Stop) is picked up at the next trigger and nothing is processed twice.
@@ -171,15 +183,26 @@ CREATE INDEX IF NOT EXISTS idx_telemetry_kind_ts ON telemetry(kind, ts DESC);
 /** Tables added after first ship — applied idempotently by re-running `schemaSql` (all use
  *  `CREATE TABLE/INDEX IF NOT EXISTS`). Only explicit column additions need separate migration. */
 function migrateAdditiveColumns(db: Database.Database): void {
-  const cols = (db.prepare(`PRAGMA table_info(context_chunk)`).all() as { name: string }[]).map(
-    c => c.name,
-  )
-  if (!cols.includes('enriched')) {
-    db.exec(`ALTER TABLE context_chunk ADD COLUMN enriched INTEGER NOT NULL DEFAULT 0`)
+  const colsOf = (table: string) =>
+    (db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(c => c.name)
+  const addIfMissing = (table: string, col: string, ddl: string) => {
+    if (!colsOf(table).includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`)
   }
-  if (!cols.includes('embedded')) {
-    db.exec(`ALTER TABLE context_chunk ADD COLUMN embedded INTEGER NOT NULL DEFAULT 0`)
-  }
+
+  addIfMissing('context_chunk', 'enriched', 'enriched INTEGER NOT NULL DEFAULT 0')
+  addIfMissing('context_chunk', 'embedded', 'embedded INTEGER NOT NULL DEFAULT 0')
+
+  // v7: project-scope + decay columns on the semantic/procedural tiers.
+  addIfMissing('semantic_fact', 'project_id', `project_id TEXT NOT NULL DEFAULT ''`)
+  addIfMissing('semantic_fact', 'created_ts', 'created_ts INTEGER NOT NULL DEFAULT 0')
+  addIfMissing('procedural', 'project_id', `project_id TEXT NOT NULL DEFAULT ''`)
+  addIfMissing('procedural', 'created_ts', 'created_ts INTEGER NOT NULL DEFAULT 0')
+  addIfMissing('procedural', 'last_seen', 'last_seen INTEGER NOT NULL DEFAULT 0')
+
+  // Indexes on the v7 columns — created here (not in schemaSql) so the ALTERs above guarantee the
+  // columns exist first, on both fresh and pre-v7 databases.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_semantic_project ON semantic_fact(project_id, last_seen DESC)`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_procedural_project ON procedural(project_id, last_seen DESC)`)
 }
 
 export function applySchema(db: Database.Database, embedDim: number = EMBED_DIM): void {

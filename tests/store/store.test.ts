@@ -209,12 +209,52 @@ function main(): void {
       results.push(fail('queryRecentMessagesScoped', `got ${scoped.length} rows, projectIds: ${scoped.map(r => r.projectId).join(',')}`))
     }
 
-    // ── queryProjects ─────────────────────────────────────────────────────────
+    // ── semantic tier: upsert + reinforce (no dup) ────────────────────────────
+    const now = 1_700_001_000_000
+    store.upsertSemanticFact({ id: 'f1', projectId: 'proj-1', fact: 'uses better-sqlite3', confidence: 0.9, lastSeen: now })
+    store.upsertSemanticFact({ id: 'f1', projectId: 'proj-1', fact: 'uses better-sqlite3', confidence: 0.9, lastSeen: now }) // dup id → ignored
+    store.reinforceSemanticFact('f1', 0.95, now + 1000)
+    const facts1 = store.querySemanticFacts('proj-1', 10)
+    if (facts1.length === 1 && facts1[0]!.support === 1 && facts1[0]!.confidence === 0.95) {
+      results.push(pass('semantic upsert+reinforce', `1 row, support=1, conf=0.95`))
+    } else {
+      results.push(fail('semantic upsert+reinforce', JSON.stringify(facts1)))
+    }
+
+    // ── semantic decay ordering: recent/strong ranks above old/weak ───────────
+    store.upsertSemanticFact({ id: 'f-old', projectId: 'proj-1', fact: 'stale fact', confidence: 0.5, lastSeen: now - 400 * 86_400_000 })
+    const ranked = store.querySemanticFacts('proj-1', 10)
+    if (ranked[0]!.id === 'f1' && ranked[ranked.length - 1]!.id === 'f-old') {
+      results.push(pass('semantic decay ordering', 'fresh/strong > old/weak'))
+    } else {
+      results.push(fail('semantic decay ordering', ranked.map(f => f.id).join(',')))
+    }
+
+    // ── procedural: upsert + reinforce + sequence round-trip ───────────────────
+    store.upsertProcedural({ id: 'p1', projectId: 'proj-1', pattern: 'add endpoint', sequence: JSON.stringify(['route', 'controller', 'test']), lastSeen: now })
+    store.reinforceProcedural('p1', now + 1000)
+    const procs = store.queryProcedural('proj-1', 10)
+    if (procs.length === 1 && procs[0]!.freq === 1 && JSON.parse(procs[0]!.sequence).length === 3) {
+      results.push(pass('procedural upsert+reinforce', 'freq=1, 3-step sequence'))
+    } else {
+      results.push(fail('procedural upsert+reinforce', JSON.stringify(procs)))
+    }
+
+    // ── delete ─────────────────────────────────────────────────────────────────
+    store.deleteSemanticFact('f-old')
+    store.deleteProcedural('p1')
+    if (store.querySemanticFacts('proj-1', 10).length === 1 && store.queryProcedural('proj-1', 10).length === 0) {
+      results.push(pass('semantic/procedural delete', 'rows removed'))
+    } else {
+      results.push(fail('semantic/procedural delete', 'delete did not remove rows'))
+    }
+
+    // ── queryProjects counts facts + patterns ──────────────────────────────────
     const projects = store.queryProjects()
     const proj1Row = projects.find(p => p.projectId === 'proj-1')
     const projOtherRow = projects.find(p => p.projectId === 'proj-other')
-    if (projects.length === 2 && proj1Row && projOtherRow && proj1Row.messages >= 1) {
-      results.push(pass('queryProjects', `${projects.length} projects, proj-1 messages=${proj1Row.messages}`))
+    if (projects.length === 2 && proj1Row && projOtherRow && proj1Row.messages >= 1 && proj1Row.facts === 1 && proj1Row.patterns === 0) {
+      results.push(pass('queryProjects', `proj-1 messages=${proj1Row.messages} facts=${proj1Row.facts} patterns=${proj1Row.patterns}`))
     } else {
       results.push(fail('queryProjects', JSON.stringify(projects)))
     }

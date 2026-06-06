@@ -8,9 +8,10 @@ const server = new McpServer(
   { name: 'memwise', version: '1.0.0' },
   {
     instructions:
-      'Local memory of past coding turns for this project (prompts, code changes, decisions).\n' +
-      '• memwise_recent  — what happened recently: last N turns + session summary. Use for "catch me up", "where did we leave off", "what did we do last session", start of a new session.\n' +
-      '• memwise_query   — specific RAG lookup: why a decision was made, when a file/symbol changed, what the role of a service is. Use when you need to find something specific.\n' +
+      'Local memory of past coding turns for this project (prompts, code changes, decisions), plus\n' +
+      'durable "Known facts" (architecture/conventions/decisions) and "Workflows" (how things are done here).\n' +
+      '• memwise_recent  — what happened recently: last N turns + session summary + durable facts/workflows. Use for "catch me up", "where did we leave off", "what did we do last session", start of a new session.\n' +
+      '• memwise_query   — specific RAG lookup: why a decision was made, when a file/symbol changed, what the role of a service is, project conventions. Use when you need to find something specific.\n' +
       'Always pass projectPath = absolute path of the working directory.',
   },
 )

@@ -1,6 +1,6 @@
 import { RETRIEVE_MAX_TOKENS } from '../core/config.js'
 import { estimateTokens } from '../core/tokens.js'
-import type { Change, ContextChunk, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
+import type { Change, ContextChunk, ProceduralPattern, PromptSig, SemanticFact, SessionSummary, SymbolDep } from '../store/memory-store.js'
 import type { AnchorHit, ContextBundle, RetrieveMode } from './types.js'
 
 export const EMPTY_BLOCK = '## memwise context\n(no matching memory)'
@@ -107,6 +107,27 @@ function formatConnected(chunks: ContextChunk[]): string[] {
   return chunks.map(c => `- ${c.text.slice(0, 160).replace(/\s+/g, ' ').trim()}`)
 }
 
+function formatFacts(facts: SemanticFact[]): string[] {
+  return facts.map(f => {
+    const text = f.fact.replace(/\s+/g, ' ').trim()
+    return f.support > 0 ? `- ${text} (×${f.support + 1})` : `- ${text}`
+  })
+}
+
+function formatPatterns(patterns: ProceduralPattern[]): string[] {
+  return patterns.map(p => {
+    let steps: string[] = []
+    try {
+      const parsed = JSON.parse(p.sequence) as unknown
+      if (Array.isArray(parsed)) steps = parsed.map(String)
+    } catch {
+      /* sequence not JSON — show pattern alone */
+    }
+    const tail = steps.length ? `: ${steps.join(' → ')}` : ''
+    return `- ${p.pattern.replace(/\s+/g, ' ').trim()}${tail}`
+  })
+}
+
 /** Section list + the order in which to trim them (lowest priority FIRST). Session mode leads
  *  with "Working on" and protects it (trimmed last); other modes keep the original layout.
  *  "Connected history" (v6 graph edges) is always trimmed first — it enriches context but is
@@ -122,20 +143,33 @@ function buildSectionList(bundle: ContextBundle): { sections: Section[]; trimOrd
     ? { key: 'connected', title: 'Connected history', body: section('Connected history', connectedLines) }
     : null
 
+  // Durable tiers (M2). Additive context — trimmed FIRST so they never starve load-bearing sections.
+  const factLines = formatFacts(bundle.semanticFacts ?? [])
+  const facts: Section | null = factLines.length > 0
+    ? { key: 'facts', title: 'Known facts', body: section('Known facts', factLines) }
+    : null
+  const patternLines = formatPatterns(bundle.proceduralPatterns ?? [])
+  const workflows: Section | null = patternLines.length > 0
+    ? { key: 'workflows', title: 'Workflows', body: section('Workflows', patternLines) }
+    : null
+  const durable = [...(facts ? [facts] : []), ...(workflows ? [workflows] : [])]
+  // Lowest priority → front of trimOrder (trimmed first).
+  const durableTrim = ['workflows', 'facts']
+
   if (bundle.mode === 'session') {
     const working: Section = { key: 'working', title: 'Working on', body: section('Working on', formatWorkingOn(bundle.recentPrompts ?? [])) }
-    const sections = [working, relevant, why, watch, ...(connected ? [connected] : [])]
+    const sections = [working, relevant, why, watch, ...(connected ? [connected] : []), ...durable]
     return {
       sections,
-      trimOrder: ['connected', 'watch', 'why', 'relevant', 'working'],
+      trimOrder: [...durableTrim, 'connected', 'watch', 'why', 'relevant', 'working'],
     }
   }
 
   const lastWork: Section = { key: 'lastWork', title: 'Last work here', body: section('Last work here', formatLastWork(bundle.latestSummary)) }
-  const sections = [relevant, why, lastWork, watch, ...(connected ? [connected] : [])]
+  const sections = [relevant, why, lastWork, watch, ...(connected ? [connected] : []), ...durable]
   return {
     sections,
-    trimOrder: ['connected', 'watch', 'lastWork', 'why', 'relevant'],
+    trimOrder: [...durableTrim, 'connected', 'watch', 'lastWork', 'why', 'relevant'],
   }
 }
 
