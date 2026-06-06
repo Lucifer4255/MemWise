@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { isAbsolute, resolve } from 'node:path'
-import type { CodeChange, SymbolDep } from '../types.js'
+import type { CodeChange, SymbolDep } from '../core/types.js'
 import type { ParseJob } from './types.js'
 import { parseSync } from './parser-client.js'
 import { isParseableFile } from './languages.js'

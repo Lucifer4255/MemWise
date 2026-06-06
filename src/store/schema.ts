@@ -1,5 +1,5 @@
 import type Database from 'better-sqlite3'
-import { EMBED_DIM } from '../config.js'
+import { EMBED_DIM } from '../core/config.js'
 
 /**
  * Bump when the schema changes. Stamped into the DB via `PRAGMA user_version`.

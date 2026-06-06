@@ -1,10 +1,10 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getAdapter } from '../adapters/index.js'
-import { BracketManager } from '../bracket.js'
-import type { AgentSource, TranscriptHint } from '../adapters/common.js'
-import type { FinalizedMessage } from '../types.js'
+import { getAdapter } from '../../src/adapters/index.js'
+import { BracketManager } from '../../src/capture/bracket.js'
+import type { AgentSource, TranscriptHint } from '../../src/adapters/common.js'
+import type { FinalizedMessage } from '../../src/core/types.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): TestResult => ({ name, ok: true, detail })

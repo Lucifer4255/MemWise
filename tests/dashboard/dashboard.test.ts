@@ -1,8 +1,8 @@
 import http from 'node:http'
-import { openDatabase } from '../db.js'
-import { GenerateClient } from '../embed/generate-client.js'
-import { maybeConsolidate } from '../enrich/episodic.js'
-import { createDashboard } from './server.js'
+import { openDatabase } from '../../src/core/db.js'
+import { GenerateClient } from '../../src/embed/generate-client.js'
+import { maybeConsolidate } from '../../src/enrich/episodic.js'
+import { createDashboard } from '../../src/dashboard/server.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): TestResult => ({ name, ok: true, detail })
@@ -101,6 +101,47 @@ async function main(): Promise<void> {
       setTimeout(() => { if (!done) { req.destroy(); resolve(false) } }, 1500)
     })
     results.push(got ? pass('/events live push', 'received job2 event') : fail('/events live push', 'no event received'))
+  }
+
+  // ── /api/projects ──
+  {
+    const projects = (await getJson(`${base}/api/projects`)) as { projectId: string; messages: number; summaries: number }[]
+    if (Array.isArray(projects) && projects.some(p => p.projectId === projectId && p.messages >= 2)) {
+      results.push(pass('/api/projects', `found ${projectId} with messages=${projects.find(p => p.projectId === projectId)?.messages}`))
+    } else {
+      results.push(fail('/api/projects', JSON.stringify(projects).slice(0, 160)))
+    }
+  }
+
+  // ── /api/memories?tier=normal ──
+  {
+    const rows = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=normal&limit=10`)) as { sig: string }[]
+    if (Array.isArray(rows) && rows.length === 2) {
+      results.push(pass('/api/memories normal', `${rows.length} rows for project`))
+    } else {
+      results.push(fail('/api/memories normal', JSON.stringify(rows).slice(0, 160)))
+    }
+  }
+
+  // ── /api/memories?tier=episodic (no summaries yet → empty) ──
+  {
+    const rows = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=episodic&limit=10`)) as unknown[]
+    if (Array.isArray(rows) && rows.length === 0) {
+      results.push(pass('/api/memories episodic empty', '[] before consolidation'))
+    } else {
+      results.push(fail('/api/memories episodic empty', JSON.stringify(rows).slice(0, 160)))
+    }
+  }
+
+  // ── /api/memories?tier=semantic and procedural → [] stubs ──
+  {
+    const sem  = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=semantic`))  as unknown[]
+    const proc = (await getJson(`${base}/api/memories?project=${encodeURIComponent(projectId)}&tier=procedural`)) as unknown[]
+    if (Array.isArray(sem) && sem.length === 0 && Array.isArray(proc) && proc.length === 0) {
+      results.push(pass('/api/memories stubs', 'semantic + procedural return []'))
+    } else {
+      results.push(fail('/api/memories stubs', `sem=${JSON.stringify(sem)} proc=${JSON.stringify(proc)}`))
+    }
   }
 
   server.close()

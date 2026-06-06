@@ -1,14 +1,28 @@
-import { statSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import { MEMWISE_DASH_PORT, MEMWISE_DB_PATH } from '../config.js'
-import { getDefaultStore } from '../db.js'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { MEMWISE_DASH_PORT, MEMWISE_DB_PATH } from '../core/config.js'
+import { getDefaultStore } from '../core/db.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
-import { DASHBOARD_HTML } from './html.js'
+
+function loadDashboardHtml(): string {
+  const base = dirname(fileURLToPath(import.meta.url))
+  // Resolves from both tsx (src/dashboard/) and compiled (dist/dashboard/)
+  const candidates = [
+    join(base, 'index.html'),
+    join(base, '..', 'src', 'dashboard', 'index.html'),
+  ]
+  for (const p of candidates) {
+    try { return readFileSync(p, 'utf-8') } catch { /* try next */ }
+  }
+  throw new Error('[memwise] dashboard index.html not found — run `npm run build` or check src/dashboard/')
+}
 
 /**
- * On-demand observability viewer (Layer 8.5). Pure Node http — no deps, no daemon. Serves one
- * inline page, a recent-messages + stats JSON API, and an SSE stream that tails the telemetry
- * table (poll the newest id, push deltas). Launched by `memwise dashboard`.
+ * On-demand observability viewer (Layer 8.5). Pure Node http — no deps, no daemon. Serves a
+ * projects-list + per-project 4-tab page (Normal/Episodic/Semantic/Procedural), a JSON API,
+ * and an SSE stream that tails the telemetry table. Launched by `memwise dashboard`.
  */
 export interface DashboardOptions {
   store?: SqliteStore
@@ -42,8 +56,32 @@ export function createDashboard(opts: DashboardOptions = {}): Server {
     const url = req.url ?? '/'
 
     if (url === '/' || url.startsWith('/index')) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-      res.end(DASHBOARD_HTML)
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' })
+      res.end(loadDashboardHtml())
+      return
+    }
+
+    if (url.startsWith('/api/projects')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(store.queryProjects()))
+      return
+    }
+
+    if (url.startsWith('/api/memories')) {
+      const params = new URL(url, 'http://localhost').searchParams
+      const project = params.get('project') ?? ''
+      const tier = params.get('tier') ?? 'normal'
+      const limit = Math.min(Number(params.get('limit') ?? 50), 200)
+      let data: unknown
+      if (tier === 'episodic') {
+        data = store.queryRecentSessionSummaries(project, limit)
+      } else if (tier === 'normal') {
+        data = store.queryRecentMessagesScoped(project, limit)
+      } else {
+        data = [] // semantic / procedural: populated in M2
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(data))
       return
     }
 

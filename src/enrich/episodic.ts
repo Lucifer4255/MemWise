@@ -1,6 +1,6 @@
-import { EPISODIC_MIN_NEW_CHUNKS } from '../config.js'
+import { EPISODIC_MIN_NEW_CHUNKS } from '../core/config.js'
 import { GenerateClient } from '../embed/generate-client.js'
-import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS } from '../config.js'
+import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS } from '../core/config.js'
 import type { Enricher } from './enricher.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
 

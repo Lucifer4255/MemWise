@@ -1,5 +1,5 @@
 import { readCursorTranscript } from '../replay/cursor-transcript.js'
-import type { CaptureEvent, HookKind } from '../types.js'
+import type { CaptureEvent, HookKind } from '../core/types.js'
 import {
   asString,
   baseCaptureFields,

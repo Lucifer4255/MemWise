@@ -1,11 +1,11 @@
-import { BracketManager, codeChangesFromToolEvent } from './bracket.js'
-import { parseClaudeCodeHook, parseCodexHook, parseCursorHook } from './adapters/index.js'
+import { BracketManager, codeChangesFromToolEvent } from '../../src/capture/bracket.js'
+import { parseClaudeCodeHook, parseCodexHook, parseCursorHook } from '../../src/adapters/index.js'
 import {
   computeMessageSig,
   serializeEdits,
   worthStoringMessage,
-} from './signature.js'
-import type { CaptureEvent, CodeChange } from './types.js'
+} from '../../src/core/signature.js'
+import type { CaptureEvent, CodeChange } from '../../src/core/types.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 

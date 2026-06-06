@@ -83,6 +83,14 @@ export interface RecentMessage {
   ts: number
 }
 
+/** One row in the projects list — aggregate counts per project_id. */
+export interface ProjectSummary {
+  projectId: string
+  messages: number
+  summaries: number
+  lastTs: number
+}
+
 export interface MemoryStore {
   runTransaction(fn: () => void): void
   insertSessionSummary(row: Omit<SessionSummary, 'id'>): void
@@ -94,6 +102,8 @@ export interface MemoryStore {
   insertTelemetry(kind: TelemetryKind, payload: Record<string, unknown>): void
   queryRecentTelemetry(afterId: number, limit: number): TelemetryEvent[]
   queryRecentMessages(limit: number): RecentMessage[]
+  queryRecentMessagesScoped(projectId: string, limit: number): RecentMessage[]
+  queryProjects(): ProjectSummary[]
   /** Count chunks for a project newer than `sinceTs` — Job 2's "enough new work?" gate. */
   countChunksSince(projectId: string, sinceTs: number): number
   insertPromptSig(sig: PromptSig): void

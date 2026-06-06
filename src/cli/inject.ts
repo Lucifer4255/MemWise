@@ -1,8 +1,8 @@
-import { projectIdFromPath } from '../project.js'
+import { projectIdFromPath } from '../core/project.js'
 import { EMPTY_BLOCK } from '../retrieval/formatter.js'
 import { retrieve } from '../retrieval/retrieve.js'
 import type { MemoryStore } from '../store/memory-store.js'
-import type { CaptureEvent } from '../types.js'
+import type { CaptureEvent } from '../core/types.js'
 
 /** Write a session-mode context block to stdout so the agent injects it into the session.
  *  Called for SessionStart.

@@ -1,5 +1,5 @@
-export type { Change, ContextChunk, PromptSig, Source, SymbolDep } from './store/memory-store.js'
-import type { SymbolDep } from './store/memory-store.js'
+export type { Change, ContextChunk, PromptSig, Source, SymbolDep } from '../store/memory-store.js'
+import type { SymbolDep } from '../store/memory-store.js'
 
 export type HookKind =
   | 'PROMPT'

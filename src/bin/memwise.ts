@@ -8,7 +8,7 @@ program.name('memwise').description('Local AI memory for Claude Code and other c
  *  already running), report that and exit cleanly rather than crashing. */
 async function launchDashboard(port?: number): Promise<void> {
   const { createDashboard } = await import('../dashboard/server.js')
-  const { MEMWISE_DASH_PORT } = await import('../config.js')
+  const { MEMWISE_DASH_PORT } = await import('../core/config.js')
   const resolved = port ?? MEMWISE_DASH_PORT
   const server = createDashboard({ port: resolved })
   server.on('error', (err: NodeJS.ErrnoException) => {
@@ -57,8 +57,8 @@ program
   .option('--tokens <n>', 'Max tokens', '1500')
   .action(async (text: string, opts: { project: string; tokens: string }) => {
     const { retrieve } = await import('../retrieval/retrieve.js')
-    const { getDefaultStore } = await import('../db.js')
-    const { projectIdFromPath } = await import('../project.js')
+    const { getDefaultStore } = await import('../core/db.js')
+    const { projectIdFromPath } = await import('../core/project.js')
     const { store } = getDefaultStore()
     const result = await retrieve(text, {
       store,
@@ -108,7 +108,7 @@ program
   .command('status')
   .description('Show MemWise store statistics')
   .action(async () => {
-    const { getDefaultStore } = await import('../db.js')
+    const { getDefaultStore } = await import('../core/db.js')
     const { db } = getDefaultStore()
     const ps = (db.prepare('SELECT COUNT(*) as n FROM prompt_sig').get() as { n: number }).n
     const ch = (db.prepare('SELECT COUNT(*) as n FROM change').get() as { n: number }).n
@@ -135,8 +135,8 @@ program
   .option('--project <path>', 'Project path for scoping', process.cwd())
   .action(async (opts: { project: string }) => {
     const { maybeConsolidate } = await import('../enrich/episodic.js')
-    const { getDefaultStore } = await import('../db.js')
-    const { projectIdFromPath } = await import('../project.js')
+    const { getDefaultStore } = await import('../core/db.js')
+    const { projectIdFromPath } = await import('../core/project.js')
     const { store } = getDefaultStore()
     const wrote = await maybeConsolidate(store, projectIdFromPath(opts.project), { minNewChunks: 1 })
     console.log(wrote ? '[memwise] nightshift summary written' : '[memwise] nothing to consolidate (or no chat model)')
@@ -149,7 +149,7 @@ program
   .description('Capture any not-yet-stored turns from a transcript file (recovery)')
   .action(async (transcript: string) => {
     const { captureFromTranscript } = await import('../capture/turn-capture.js')
-    const { getDefaultStore } = await import('../db.js')
+    const { getDefaultStore } = await import('../core/db.js')
     const { store } = getDefaultStore()
     const r = await captureFromTranscript(transcript, { store })
     console.log(`[memwise] captured ${r.captured} new of ${r.turns} turns (session ${r.sessionId})`)

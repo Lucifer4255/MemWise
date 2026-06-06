@@ -1,14 +1,14 @@
-import { EMBED_DIM } from '../config.js'
-import { openDatabase } from '../db.js'
-import { server as mcpServer } from '../mcp/query-server.js'
-import { contextChunkIdForSig } from '../store/sqlite-store.js'
-import type { ContextChunk, PromptSig } from '../store/memory-store.js'
-import { countTokens, formatBundle } from './formatter.js'
-import { searchAnchors } from './hybrid-search.js'
-import { fuseRankedLists } from '../rrf.js'
-import { retrieve } from './retrieve.js'
-import { expandAnchors } from './traversal.js'
-import type { AnchorHit, ContextBundle } from './types.js'
+import { EMBED_DIM } from '../../src/core/config.js'
+import { openDatabase } from '../../src/core/db.js'
+import { server as mcpServer } from '../../src/mcp/query-server.js'
+import { contextChunkIdForSig } from '../../src/store/sqlite-store.js'
+import type { ContextChunk, PromptSig } from '../../src/store/memory-store.js'
+import { countTokens, formatBundle } from '../../src/retrieval/formatter.js'
+import { searchAnchors } from '../../src/retrieval/hybrid-search.js'
+import { fuseRankedLists } from '../../src/core/rrf.js'
+import { retrieve } from '../../src/retrieval/retrieve.js'
+import { expandAnchors } from '../../src/retrieval/traversal.js'
+import type { AnchorHit, ContextBundle } from '../../src/retrieval/types.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 
@@ -286,7 +286,7 @@ async function main(): Promise<void> {
 
   // MCP decoupled — retrieve does not require MCP process
   {
-    const mod = await import('./retrieve.js')
+    const mod = await import('../../src/retrieval/retrieve.js')
     if (typeof mod.retrieve === 'function' && !String(mod.retrieve).includes('McpServer')) {
       results.push(pass('MCP decoupled', 'retrieve() standalone'))
     } else {

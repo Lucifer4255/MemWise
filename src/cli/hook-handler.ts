@@ -1,9 +1,9 @@
 import { parseHook } from '../adapters/index.js'
 import type { RawHookPayload, TranscriptHint } from '../adapters/common.js'
 import { captureFromTranscript } from '../capture/turn-capture.js'
-import { getDefaultStore } from '../db.js'
-import { projectIdFromPath } from '../project.js'
-import type { CaptureEvent } from '../types.js'
+import { getDefaultStore } from '../core/db.js'
+import { projectIdFromPath } from '../core/project.js'
+import type { CaptureEvent } from '../core/types.js'
 import { injectContext } from './inject.js'
 
 /**

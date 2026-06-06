@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { captureFromTranscript } from '../capture/turn-capture.js'
-import { EMBED_DIM } from '../config.js'
-import { GenerateClient } from '../embed/generate-client.js'
-import { Enricher } from '../enrich/enricher.js'
-import { openDatabase } from '../db.js'
-import { projectIdFromPath } from '../project.js'
+import { captureFromTranscript } from '../../src/capture/turn-capture.js'
+import { EMBED_DIM } from '../../src/core/config.js'
+import { GenerateClient } from '../../src/embed/generate-client.js'
+import { Enricher } from '../../src/enrich/enricher.js'
+import { openDatabase } from '../../src/core/db.js'
+import { projectIdFromPath } from '../../src/core/project.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): TestResult => ({ name, ok: true, detail })

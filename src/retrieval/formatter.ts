@@ -1,5 +1,5 @@
-import { RETRIEVE_MAX_TOKENS } from '../config.js'
-import { estimateTokens } from '../tokens.js'
+import { RETRIEVE_MAX_TOKENS } from '../core/config.js'
+import { estimateTokens } from '../core/tokens.js'
 import type { Change, ContextChunk, PromptSig, SessionSummary, SymbolDep } from '../store/memory-store.js'
 import type { AnchorHit, ContextBundle, RetrieveMode } from './types.js'
 

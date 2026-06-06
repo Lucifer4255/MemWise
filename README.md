@@ -188,7 +188,7 @@ Benchmarked at N=200, 300 seeded rows, mocked embed (~1ms):
 
 Capture is a single SQLite transaction. Write latency stays flat as the corpus grows — no index rebuild (agentmemory rebuilds its full in-memory index on every batch: 177ms at 240 rows, 1.7s at 10k rows).
 
-Real retrieval adds Ollama embed RTT (~20-80ms). Benchmark with `BENCH_N=500 npx tsx src/bench/p99.ts`.
+Real retrieval adds Ollama embed RTT (~20-80ms). Benchmark with `BENCH_N=500 npx tsx bench/p99.ts`.
 
 ---
 

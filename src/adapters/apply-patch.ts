@@ -1,4 +1,4 @@
-import type { CodeChange } from '../types.js'
+import type { CodeChange } from '../core/types.js'
 
 /**
  * Parse a Codex `apply_patch` command into file-level changes.

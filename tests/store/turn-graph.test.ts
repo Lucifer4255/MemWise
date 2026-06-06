@@ -1,6 +1,6 @@
-import { openDatabase } from '../db.js'
-import { persistMessage } from '../capture/persist.js'
-import type { ContextChunk } from './memory-store.js'
+import { openDatabase } from '../../src/core/db.js'
+import { persistMessage } from '../../src/capture/persist.js'
+import type { ContextChunk } from '../../src/store/memory-store.js'
 
 type R = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): R => ({ name, ok: true, detail })
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
   // ── test 7: connected chunks surface in traversal ────────────────────────
   // Use sig1 as anchor — its parent chain is just [sig1] (no parents), so graph neighbors
   // sig2 (via forward edge) and sig3 (via symbol reverse edge) are genuinely new context.
-  const { expandAnchors } = await import('../retrieval/traversal.js')
+  const { expandAnchors } = await import('../../src/retrieval/traversal.js')
   const bundle = expandAnchors({
     store,
     anchors: [{ sig: sig1, text: 'added verifyToken to auth.ts', ts: 1000, sources: ['test'] }],

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MemWise</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: #0d1117; color: #c9d1d9; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+  /* ── header ── */
+  header { padding: 10px 18px; border-bottom: 1px solid #21262d;
+           display: flex; gap: 20px; align-items: center; flex-shrink: 0; background: #0d1117; }
+  header h1 { font-size: 14px; color: #58a6ff; letter-spacing: .4px; font-weight: 700; }
+  .stat { color: #8b949e; font-size: 12px; }
+  .stat b { color: #c9d1d9; }
+  #s-live { margin-left: auto; font-size: 11px; color: #3fb950; }
+
+  /* ── layout ── */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── sidebar ── */
+  aside { width: 220px; flex-shrink: 0; border-right: 1px solid #21262d;
+          display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-title { padding: 10px 14px 6px; font-size: 10px; text-transform: uppercase;
+                   letter-spacing: .8px; color: #6e7681; flex-shrink: 0; }
+  .proj-list { flex: 1; overflow-y: auto; }
+  .proj-item { padding: 8px 14px; cursor: pointer; border-left: 3px solid transparent;
+               transition: background .1s; }
+  .proj-item:hover { background: #161b22; }
+  .proj-item.active { border-left-color: #58a6ff; background: #0d1f38; }
+  .proj-name { color: #e6edf3; font-size: 12px; white-space: nowrap;
+               overflow: hidden; text-overflow: ellipsis; }
+  .proj-meta { color: #6e7681; font-size: 10px; margin-top: 2px; }
+  .sidebar-empty { padding: 20px 14px; color: #6e7681; font-size: 12px; line-height: 1.6; }
+
+  /* ── main panel ── */
+  main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .tabs { display: flex; border-bottom: 1px solid #21262d; flex-shrink: 0; padding: 0 16px; gap: 0; }
+  .tab { padding: 9px 16px; cursor: pointer; color: #8b949e; font-size: 12px;
+         border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .1s; }
+  .tab:hover { color: #c9d1d9; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .cards { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+  /* ── cards ── */
+  .card { border: 1px solid #21262d; border-radius: 6px; padding: 11px 13px;
+          margin-bottom: 10px; background: #0d1117; }
+  .card-meta { color: #6e7681; font-size: 11px; display: flex; gap: 8px;
+               align-items: center; flex-wrap: wrap; }
+  .card-prompt { color: #e6edf3; margin: 6px 0 5px; font-weight: 600; font-size: 13px; }
+  .card-text { white-space: pre-wrap; color: #adbac7; font-size: 12px; line-height: 1.55; }
+  .card-summary { color: #c9d1d9; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+  .badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
+  .badge.enriched   { background: #1f6feb33; color: #79c0ff; }
+  .badge.raw        { background: #6e768133; color: #8b949e; }
+  .badge.nightshift { background: #23863644; color: #3fb950; }
+  .badge.postcompact { background: #6e768133; color: #adbac7; }
+
+  /* ── empty states ── */
+  .empty { color: #6e7681; padding: 60px 20px; text-align: center; font-size: 13px; line-height: 1.7; }
+  .empty code { color: #8b949e; background: #161b22; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  /* ── live feed footer ── */
+  .feed { border-top: 1px solid #21262d; padding: 4px 16px; font-size: 11px;
+          color: #6e7681; max-height: 68px; overflow-y: auto; flex-shrink: 0; }
+  .feed .line { padding: 1px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>MemWise</h1>
+  <span class="stat"><b id="s-messages">–</b> messages</span>
+  <span class="stat">embed avg <b id="s-embed">–</b> ms</span>
+  <span class="stat">db <b id="s-db">–</b></span>
+  <span id="s-live">● live</span>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="sidebar-title">Projects</div>
+    <div class="proj-list" id="proj-list">
+      <div class="sidebar-empty">Loading…</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-tier="normal">Normal</div>
+      <div class="tab" data-tier="episodic">Episodic</div>
+      <div class="tab" data-tier="semantic">Semantic</div>
+      <div class="tab" data-tier="procedural">Procedural</div>
+    </div>
+    <div class="cards" id="cards">
+      <div class="empty">Select a project from the sidebar.</div>
+    </div>
+    <div class="feed" id="feed"></div>
+  </main>
+</div>
+
+<script>
+const fmtBytes = b => b > 1e6 ? (b/1e6).toFixed(1)+' MB' : (b/1e3).toFixed(0)+' KB';
+const fmtTime  = ts => new Date(ts).toLocaleString();
+const esc = s => (s||'').replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let activeProject = null;
+let activeTier = 'normal';
+
+// ── projects sidebar ──────────────────────────────────────────────────────────
+async function loadProjects() {
+  const projects = await fetch('/api/projects').then(r => r.json()).catch(() => []);
+  const list = document.getElementById('proj-list');
+  if (!projects.length) {
+    list.innerHTML = '<div class="sidebar-empty">No projects yet.<br>Work a turn in an agent first.</div>';
+    return;
+  }
+  list.innerHTML = projects.map(p => {
+    const label = p.projectId.split('/').filter(Boolean).pop() || p.projectId;
+    const isActive = p.projectId === activeProject;
+    return '<div class="proj-item'+(isActive?' active':'')+'" data-id="'+esc(p.projectId)+'" title="'+esc(p.projectId)+'">' +
+      '<div class="proj-name">'+esc(label)+'</div>' +
+      '<div class="proj-meta">'+p.messages+' msgs · '+p.summaries+' sessions · '+fmtTime(p.lastTs)+'</div>' +
+      '</div>';
+  }).join('');
+  list.querySelectorAll('.proj-item').forEach(el =>
+    el.addEventListener('click', () => selectProject(el.dataset.id)));
+  if (!activeProject && projects.length) selectProject(projects[0].projectId);
+}
+
+function selectProject(id) {
+  activeProject = id;
+  document.querySelectorAll('.proj-item').forEach(el =>
+    el.classList.toggle('active', el.dataset.id === id));
+  loadMemories();
+}
+
+// ── tabs ──────────────────────────────────────────────────────────────────────
+document.getElementById('tabs').addEventListener('click', e => {
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  activeTier = tab.dataset.tier;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+  loadMemories();
+});
+
+// ── card renderers ────────────────────────────────────────────────────────────
+function renderNormal(m) {
+  return '<div class="card">' +
+    '<div class="card-meta">' +
+      '<span>'+esc(m.sig.slice(0,12))+'</span>' +
+      '<span>'+fmtTime(m.ts)+'</span>' +
+      '<span class="badge '+(m.enriched?'enriched':'raw')+'">'+(m.enriched?'enriched':'raw')+'</span>' +
+    '</div>' +
+    '<div class="card-prompt">'+esc(m.promptText)+'</div>' +
+    '<div class="card-text">'+esc(m.text)+'</div>' +
+    '</div>';
+}
+
+function renderEpisodic(s) {
+  return '<div class="card">' +
+    '<div class="card-meta">' +
+      '<span>'+fmtTime(s.ts)+'</span>' +
+      '<span class="badge '+esc(s.source)+'">'+esc(s.source)+'</span>' +
+    '</div>' +
+    '<div class="card-summary">'+esc(s.summary)+'</div>' +
+    '</div>';
+}
+
+const TIER_EMPTY = {
+  normal:     'No memories yet for this project.\nWork a turn in an agent, then refresh.',
+  episodic:   'No episodic summaries yet.\nRun <code>memwise consolidate</code> after a session.',
+  semantic:   'Semantic facts not yet captured.\nArrives in Milestone 2.',
+  procedural: 'Procedural patterns not yet captured.\nArrives in Milestone 2.',
+};
+
+// ── load memories for active project + tier ───────────────────────────────────
+async function loadMemories() {
+  const cards = document.getElementById('cards');
+  if (!activeProject) {
+    cards.innerHTML = '<div class="empty">Select a project from the sidebar.</div>';
+    return;
+  }
+  cards.innerHTML = '<div class="empty">Loading…</div>';
+  const url = '/api/memories?project='+encodeURIComponent(activeProject)+'&tier='+activeTier+'&limit=50';
+  const rows = await fetch(url).then(r => r.json()).catch(() => []);
+  if (!rows.length) {
+    cards.innerHTML = '<div class="empty">'+TIER_EMPTY[activeTier]+'</div>';
+    return;
+  }
+  if (activeTier === 'normal')   { cards.innerHTML = rows.map(renderNormal).join('');   return; }
+  if (activeTier === 'episodic') { cards.innerHTML = rows.map(renderEpisodic).join(''); return; }
+  cards.innerHTML = '<div class="empty">'+TIER_EMPTY[activeTier]+'</div>';
+}
+
+// ── stats ─────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  const s = await fetch('/api/stats').then(r => r.json()).catch(() => ({}));
+  document.getElementById('s-messages').textContent = s.messages ?? '–';
+  document.getElementById('s-embed').textContent    = s.avgEmbedMs ?? '–';
+  document.getElementById('s-db').textContent       = fmtBytes(s.dbSizeBytes || 0);
+}
+
+// ── SSE live feed ─────────────────────────────────────────────────────────────
+function startSSE() {
+  const feed = document.getElementById('feed');
+  const es = new EventSource('/events');
+  es.onmessage = ev => {
+    const e = JSON.parse(ev.data);
+    const line = document.createElement('div');
+    line.className = 'line';
+    line.textContent = '['+e.kind+'] '+JSON.stringify(e.payload);
+    feed.prepend(line);
+    while (feed.childNodes.length > 30) feed.removeChild(feed.lastChild);
+    if (e.kind === 'message') { loadStats(); loadProjects(); if (activeProject) loadMemories(); }
+  };
+  es.onerror = () => { document.getElementById('s-live').style.color = '#f85149'; };
+}
+
+// ── init ──────────────────────────────────────────────────────────────────────
+loadStats();
+loadProjects();
+startSSE();
+setInterval(loadStats, 10000);
+</script>
+</body>
+</html>

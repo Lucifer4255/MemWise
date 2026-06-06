@@ -1,8 +1,8 @@
-import { isApplyPatchCommand, parseApplyPatch } from './adapters/apply-patch.js'
-import { changesFromToolInput, type ResolvedChanges } from './parser/bridge.js'
-import { computeMessageSig, worthStoringMessage } from './signature.js'
-import type { Bracket, CaptureEvent, CodeChange, FinalizedMessage, Segment } from './types.js'
-import { createEmptySegment } from './types.js'
+import { isApplyPatchCommand, parseApplyPatch } from '../adapters/apply-patch.js'
+import { changesFromToolInput, type ResolvedChanges } from '../parser/bridge.js'
+import { computeMessageSig, worthStoringMessage } from '../core/signature.js'
+import type { Bracket, CaptureEvent, CodeChange, FinalizedMessage, Segment } from '../core/types.js'
+import { createEmptySegment } from '../core/types.js'
 
 /** Serialised open-bracket state. Originally a Redis cross-process snapshot (Layer 7); retained
  *  as a pure (de)serialisation contract for tests and any out-of-process bracket transfer. */
@@ -47,7 +47,7 @@ function bracketKey(event: CaptureEvent): string {
   return event.sessionId
 }
 
-import { projectIdFromPath } from './project.js'
+import { projectIdFromPath } from '../core/project.js'
 
 // Read-only tools must not produce CodeChange rows — they contribute to touchedFiles only.
 const READONLY_TOOLS = new Set(['Read', 'Glob', 'Grep', 'LS', 'List'])

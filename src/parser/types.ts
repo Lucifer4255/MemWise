@@ -1,5 +1,5 @@
 import type { Range as TsRange } from 'tree-sitter'
-import type { SymbolDep } from '../types.js'
+import type { SymbolDep } from '../core/types.js'
 
 export type SupportedLanguage =
   | 'typescript'

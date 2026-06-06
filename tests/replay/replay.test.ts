@@ -2,10 +2,10 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EMBED_DIM } from '../config.js'
-import { retrieve } from '../retrieval/retrieve.js'
-import { readTranscript } from './transcript-reader.js'
-import { replayTranscript } from './replay.js'
+import { EMBED_DIM } from '../../src/core/config.js'
+import { retrieve } from '../../src/retrieval/retrieve.js'
+import { readTranscript } from '../../src/replay/transcript-reader.js'
+import { replayTranscript } from '../../src/replay/replay.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): TestResult => ({ name, ok: true, detail })

@@ -1,7 +1,7 @@
-import { BracketManager, codeChangesFromToolEvent } from '../bracket.js'
-import { parseCodexHook, parseCursorHook, parseHook } from './index.js'
-import { isApplyPatchCommand, parseApplyPatch } from './apply-patch.js'
-import type { AdapterContext } from './common.js'
+import { BracketManager, codeChangesFromToolEvent } from '../../src/capture/bracket.js'
+import { parseCodexHook, parseCursorHook, parseHook } from '../../src/adapters/index.js'
+import { isApplyPatchCommand, parseApplyPatch } from '../../src/adapters/apply-patch.js'
+import type { AdapterContext } from '../../src/adapters/common.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 const pass = (name: string, detail = ''): TestResult => ({ name, ok: true, detail })

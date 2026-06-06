@@ -1,4 +1,4 @@
-import type { CaptureEvent, HookKind } from '../types.js'
+import type { CaptureEvent, HookKind } from '../core/types.js'
 
 export interface AdapterContext {
   seq: number

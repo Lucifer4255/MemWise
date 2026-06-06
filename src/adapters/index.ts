@@ -11,7 +11,7 @@ export type {
   TranscriptRead,
 } from './common.js'
 
-import type { CaptureEvent } from '../types.js'
+import type { CaptureEvent } from '../core/types.js'
 import { claudeCodeAdapter } from './claude-code.js'
 import { codexAdapter } from './codex.js'
 import { cursorAdapter } from './cursor.js'

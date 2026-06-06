@@ -1,5 +1,5 @@
 import type { Range, SyntaxNode, Tree } from 'tree-sitter'
-import type { SymbolDep } from '../types.js'
+import type { SymbolDep } from '../core/types.js'
 import { allDeclaredNames, declarationForRange, symbolNameFromDecl } from './symbol-mapper.js'
 
 // Call-expression node types across the supported grammars.

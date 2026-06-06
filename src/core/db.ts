@@ -3,8 +3,8 @@ import { dirname } from 'node:path'
 import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import { EMBED_DIM, MEMWISE_DB_PATH } from './config.js'
-import { applySchema } from './store/schema.js'
-import { SqliteStore } from './store/sqlite-store.js'
+import { applySchema } from '../store/schema.js'
+import { SqliteStore } from '../store/sqlite-store.js'
 
 export function openDatabase(
   path: string = ':memory:',

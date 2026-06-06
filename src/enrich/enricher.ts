@@ -1,15 +1,14 @@
-import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS } from '../config.js'
+import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS } from '../core/config.js'
 import { GenerateClient } from '../embed/generate-client.js'
-import type { FinalizedMessage } from '../types.js'
+import type { FinalizedMessage } from '../core/types.js'
 
 const SYSTEM = [
-  'You rewrite a coding-session memory note so a future AI agent can recall what happened and WHY.',
+  'You write a one-line TL;DR for a coding-session memory note, so a future AI agent can grasp the gist at a glance.',
   'Rules:',
   '- Keep it factual and specific. Do NOT invent details not present in the input.',
-  '- Turn vague narration ("updated the code") into concrete prose naming files, symbols, and the reason.',
-  '- For each code change, state briefly why it was made if the input implies it.',
-  '- Output ONLY the rewritten note as plain prose. No preamble, no markdown headers, no bullet symbols required.',
-  '- Be concise: a few sentences, not an essay.',
+  '- Name the key file(s)/symbol(s) touched and the reason for the change if the input implies it.',
+  '- ONE or at most TWO sentences. No preamble, no markdown headers, no bullet symbols, no "TL;DR:" prefix.',
+  '- This is a summary that sits ABOVE the raw notes — do not restate everything, just the gist.',
 ].join('\n')
 
 export interface EnrichResult {
@@ -30,7 +29,7 @@ function buildPrompt(msg: FinalizedMessage): string {
     '',
     changes ? `Code changes:\n${changes}` : 'Code changes: none',
     '',
-    'Rewrite the captured notes into a single concise memory note:',
+    'Write the one-line TL;DR:',
   ].join('\n')
 }
 
@@ -51,14 +50,25 @@ export class Enricher {
     if (ENRICH_ENABLED === 'off' || !raw.trim()) {
       return { text: raw, enriched: false, ms: 0, model: null }
     }
+    // Enrichment rewrites code-edit narration into a concise why-note — its whole system prompt is
+    // built around naming files/symbols/reasons. On a pure discussion/Q&A turn (no code changes) it
+    // has nothing to ground on and emits vague filler ("No code changes were made. The discussion
+    // was about…"), which is worse than the raw context. Skip it and keep the faithful raw text.
+    if (msg.codeChanges.length === 0) {
+      return { text: raw, enriched: false, ms: 0, model: null }
+    }
     if (ENRICH_ENABLED === 'auto' && !(await this.client.isAvailable())) {
       return { text: raw, enriched: false, ms: performance.now() - t0, model: null }
     }
     try {
       const out = await this.client.generate(buildPrompt(msg), SYSTEM, this.timeoutMs)
-      const cleaned = out.trim()
-      if (!cleaned) return { text: raw, enriched: false, ms: performance.now() - t0, model: null }
-      return { text: cleaned, enriched: true, ms: performance.now() - t0, model: this.client.modelName }
+      const tldr = out.trim().replace(/^TL;?DR:?\s*/i, '') // strip a stray prefix if the model adds one
+      if (!tldr) return { text: raw, enriched: false, ms: performance.now() - t0, model: null }
+      // Prepend the TL;DR, KEEP the raw notes verbatim below it. This preserves keyword/FTS recall
+      // (the raw text survives) while adding a distilled semantic summary on top — best of both,
+      // and the embedding (computed over the combined text) gets both signals.
+      const text = `TL;DR: ${tldr}\n\n${raw}`
+      return { text, enriched: true, ms: performance.now() - t0, model: this.client.modelName }
     } catch {
       // timeout / model down / bad response → fall back to raw, still written once.
       return { text: raw, enriched: false, ms: performance.now() - t0, model: null }

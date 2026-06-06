@@ -1,4 +1,4 @@
-import type { CaptureEvent } from '../types.js'
+import type { CaptureEvent } from '../core/types.js'
 
 export type CaptureKind =
   | 'file_change'

@@ -1,6 +1,6 @@
-import { EMBED_DIM } from '../config.js'
-import { openDatabase } from '../db.js'
-import type { ContextChunk, PromptSig } from './memory-store.js'
+import { EMBED_DIM } from '../../src/core/config.js'
+import { openDatabase } from '../../src/core/db.js'
+import type { ContextChunk, PromptSig } from '../../src/store/memory-store.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 
@@ -151,6 +151,32 @@ function main(): void {
       results.push(pass('queryHybrid RRF', `vec+fts fused → chunk-1 first (${hybrid.length} hits)`))
     }
 
+    // FTS5 special-char / keyword safety: real prompts contain @paths, [brackets], hyphens, and
+    // the literal words and/or/not — none may throw "fts5: syntax error". (Regression: eval harness.)
+    const gnarlyQueries = [
+      'remove gap in @src/components/popup.tsx',
+      'fix the [config] and (setup) issue',
+      'handle this AND that OR the other NOT none',
+      'rate-limit the api/v2 endpoint',
+      '"""', // pure punctuation → must not throw
+    ]
+    let ftsSafe = true
+    let ftsErr = ''
+    for (const q of gnarlyQueries) {
+      try {
+        store.queryHybrid(targetVec, q, 5)
+      } catch (e) {
+        ftsSafe = false
+        ftsErr = `${q} → ${String(e)}`
+        break
+      }
+    }
+    results.push(
+      ftsSafe
+        ? pass('FTS5 special-char safety', 'paths/brackets/hyphens/keywords never throw')
+        : fail('FTS5 special-char safety', ftsErr),
+    )
+
     // Deleting a context_chunk must evict its vector (trigger) — no orphan in chunk_vec.
     db.prepare(`DELETE FROM context_chunk WHERE id = ?`).run('chunk-2')
     const orphan = db
@@ -161,6 +187,38 @@ function main(): void {
     } else {
       results.push(pass('vec cleanup on delete', 'chunk_vec row evicted with context_chunk'))
     }
+    // ── queryRecentMessagesScoped ─────────────────────────────────────────────
+    const sig2: PromptSig = {
+      sig: 'b'.repeat(64),
+      parentSig: null,
+      promptText: 'other project prompt',
+      sessionId: 'sess-2',
+      source: 'claude-code',
+      projectId: 'proj-other',
+      ts: 1_700_000_002,
+    }
+    store.insertPromptSig(sig2)
+    store.insertContextChunk(
+      { id: 'chunk-other', sig: sig2.sig, text: 'other project note', projectId: 'proj-other', ts: 1_700_000_002 },
+      fakeEmbedding(42),
+    )
+    const scoped = store.queryRecentMessagesScoped('proj-1', 50)
+    if (scoped.length === 1 && scoped[0]?.projectId === 'proj-1') {
+      results.push(pass('queryRecentMessagesScoped', 'returns only proj-1 messages'))
+    } else {
+      results.push(fail('queryRecentMessagesScoped', `got ${scoped.length} rows, projectIds: ${scoped.map(r => r.projectId).join(',')}`))
+    }
+
+    // ── queryProjects ─────────────────────────────────────────────────────────
+    const projects = store.queryProjects()
+    const proj1Row = projects.find(p => p.projectId === 'proj-1')
+    const projOtherRow = projects.find(p => p.projectId === 'proj-other')
+    if (projects.length === 2 && proj1Row && projOtherRow && proj1Row.messages >= 1) {
+      results.push(pass('queryProjects', `${projects.length} projects, proj-1 messages=${proj1Row.messages}`))
+    } else {
+      results.push(fail('queryProjects', JSON.stringify(projects)))
+    }
+
   } finally {
     db.close()
   }

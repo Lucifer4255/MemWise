@@ -1,4 +1,4 @@
-import { EMBED_DIM } from '../config.js'
+import { EMBED_DIM } from '../core/config.js'
 
 export function embeddingToBuffer(embedding: number[]): Buffer {
   const floats = new Float32Array(embedding)

@@ -1,4 +1,4 @@
-import { EMBED_DIM, EMBED_MODEL, OLLAMA_URL } from '../config.js'
+import { EMBED_DIM, EMBED_MODEL, OLLAMA_URL } from '../core/config.js'
 
 export type EmbedFn = (text: string) => Promise<number[]>
 

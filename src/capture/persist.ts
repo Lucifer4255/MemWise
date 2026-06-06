@@ -1,6 +1,6 @@
 import type { Change, ContextChunk, PromptSig, SymbolDep, TurnEdge } from '../store/memory-store.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
-import type { FinalizedMessage } from '../types.js'
+import type { FinalizedMessage } from '../core/types.js'
 
 /**
  * The single atomic write for one captured message: prompt_sig + change rows + symbol_dep edges +

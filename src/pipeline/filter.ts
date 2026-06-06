@@ -1,4 +1,4 @@
-import type { CaptureEvent } from '../types.js'
+import type { CaptureEvent } from '../core/types.js'
 
 // Read/Glob/Grep/LS/List pass through — they feed the bracket's touchedFiles set so
 // cross-message parent_sig lineage (e.g. execution→plan) can wire up via file overlap.

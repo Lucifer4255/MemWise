@@ -1,5 +1,5 @@
-import { RETRIEVE_HYBRID_LIMIT } from '../config.js'
-import { fuseRankedLists } from '../rrf.js'
+import { RETRIEVE_HYBRID_LIMIT } from '../core/config.js'
+import { fuseRankedLists } from '../core/rrf.js'
 import type { MemoryStore } from '../store/memory-store.js'
 import type { AnchorHit, RetrieveOptions } from './types.js'
 

@@ -1,11 +1,12 @@
 import type Database from 'better-sqlite3'
 import { embeddingToBuffer } from '../embed/vector.js'
-import { fuseRankedLists } from '../rrf.js'
+import { fuseRankedLists } from '../core/rrf.js'
 import type {
   CaptureCursor,
   Change,
   ContextChunk,
   MemoryStore,
+  ProjectSummary,
   PromptSig,
   RecentMessage,
   SessionSummary,
@@ -111,12 +112,23 @@ function ftsQuery(keywords: string): string {
   // Join with OR (not the FTS5 default implicit AND): in hybrid retrieval we want
   // recall — a chunk matching ANY keyword is a candidate, and RRF + BM25 rank it.
   // Requiring every term (AND) silently drops good partial matches.
+  // FTS5 boolean keywords are reserved even as plain barewords — a query containing the
+  // word "AND"/"OR"/"NOT"/"NEAR" must be quoted or it's parsed as an operator.
+  const FTS_KEYWORDS = new Set(['AND', 'OR', 'NOT', 'NEAR'])
   const tokens = trimmed.split(/\s+/).filter(Boolean)
   return tokens
     .map(token => {
-      if (/["*():^]/.test(token)) return `"${token.replace(/"/g, '""')}"`
+      // Quote any token that isn't a plain bareword, or that collides with an FTS5 keyword.
+      // FTS5 reserves a wide set of chars (" * ( ) : ^ [ ] { } - + . / @ , etc.) — quoting as a
+      // phrase is the safe path and avoids "fts5: syntax error" on real prompts that contain
+      // @paths, [brackets], hyphens, or the literal words and/or/not.
+      if (/[^\w]/.test(token) || FTS_KEYWORDS.has(token.toUpperCase())) {
+        const cleaned = token.replace(/"/g, '""')
+        return `"${cleaned}"`
+      }
       return token
     })
+    .filter(t => t !== '""')
     .join(' OR ')
 }
 
@@ -219,6 +231,56 @@ export class SqliteStore implements MemoryStore {
       text: r.text,
       enriched: r.enriched === 1,
       ts: r.ts,
+    }))
+  }
+
+  queryRecentMessagesScoped(projectId: string, limit: number): RecentMessage[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.sig AS sig, c.project_id AS project_id, p.prompt_text AS prompt_text,
+                c.text AS text, c.enriched AS enriched, c.ts AS ts
+         FROM context_chunk c
+         JOIN prompt_sig p ON p.sig = c.sig
+         WHERE p.project_id = ?
+         ORDER BY c.ts DESC
+         LIMIT ?`,
+      )
+      .all(projectId, limit) as {
+      sig: string
+      project_id: string
+      prompt_text: string
+      text: string
+      enriched: number
+      ts: number
+    }[]
+    return rows.map(r => ({
+      sig: r.sig,
+      projectId: r.project_id,
+      promptText: r.prompt_text,
+      text: r.text,
+      enriched: r.enriched === 1,
+      ts: r.ts,
+    }))
+  }
+
+  queryProjects(): ProjectSummary[] {
+    const rows = this.db
+      .prepare(
+        `SELECT p.project_id,
+                COUNT(DISTINCT p.sig) AS messages,
+                COUNT(DISTINCT s.id)  AS summaries,
+                MAX(p.ts)             AS last_ts
+         FROM prompt_sig p
+         LEFT JOIN session_summary s ON s.project_id = p.project_id
+         GROUP BY p.project_id
+         ORDER BY last_ts DESC`,
+      )
+      .all() as { project_id: string; messages: number; summaries: number; last_ts: number }[]
+    return rows.map(r => ({
+      projectId: r.project_id,
+      messages: r.messages,
+      summaries: r.summaries,
+      lastTs: r.last_ts,
     }))
   }
 

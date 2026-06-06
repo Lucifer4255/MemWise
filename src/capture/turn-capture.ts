@@ -1,14 +1,14 @@
 import { getAdapter } from '../adapters/index.js'
 import type { AgentSource, TranscriptHint } from '../adapters/common.js'
-import { EPISODIC_MIN_NEW_CHUNKS } from '../config.js'
+import { EPISODIC_MIN_NEW_CHUNKS } from '../core/config.js'
 import { Embedder } from '../embed/embedder.js'
 import type { EmbedFn } from '../embed/ollama-client.js'
 import { Enricher } from '../enrich/enricher.js'
 import { maybeConsolidate } from '../enrich/episodic.js'
-import { BracketManager } from '../bracket.js'
-import { projectIdFromPath } from '../project.js'
+import { BracketManager } from './bracket.js'
+import { projectIdFromPath } from '../core/project.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
-import type { FinalizedMessage } from '../types.js'
+import type { FinalizedMessage } from '../core/types.js'
 import { persistMessage } from './persist.js'
 
 export interface CaptureDeps {

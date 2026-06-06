@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import * as sqliteVec from 'sqlite-vec'
 import Parser from 'tree-sitter'
 import TSTypeScript from 'tree-sitter-typescript'
-import { EMBED_MODEL, EMBED_DIM, OLLAMA_URL } from './config.js'
+import { EMBED_MODEL, EMBED_DIM, OLLAMA_URL } from '../src/core/config.js'
 
 type Result = { name: string; ok: boolean; detail: string }
 

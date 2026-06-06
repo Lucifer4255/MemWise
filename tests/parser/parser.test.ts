@@ -5,7 +5,7 @@ import {
   parseInWorker,
   resetTreeCache,
   shutdownParserWorker,
-} from './index.js'
+} from '../../src/parser/index.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
 

@@ -1,4 +1,4 @@
-import { ENRICH_MODEL, OLLAMA_URL } from '../config.js'
+import { ENRICH_MODEL, OLLAMA_URL } from '../core/config.js'
 
 /**
  * Chat/generation client for the local enrichment model (Ollama `/api/generate`). Separate from
