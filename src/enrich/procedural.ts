@@ -6,15 +6,16 @@ import type { SqliteStore } from '../store/sqlite-store.js'
 import { buildMaterial, isJunkText, parseJsonLoose } from './consolidate-utils.js'
 
 const SYSTEM = [
-  'You extract reusable HOW-TO procedures from recent coding-session notes — the "how we do things',
-  'here" knowledge a future agent should follow. If a note says "to do X: a, b, c", that IS a',
-  'procedure — extract it (even from a single mention). Skip one-off task narration with no reusable',
+  'You extract reusable HOW-TO procedures from coding-session notes — the "how we do things here"',
+  'knowledge a future agent should follow. Notes are mostly past-tense work narration; infer the',
+  'repeatable multi-step procedure behind them. If a note says or implies "to do X: a, b, c", that IS a',
+  'procedure — extract it. A real procedure has 2+ ordered steps. Skip one-off narration with no reusable',
   'steps ("fixed a typo in README").',
-  'Example input: "To deploy: run build, push image, apply manifest."',
-  'Example output: {"newPatterns":[{"pattern":"deploy the service","sequence":["run build","push image","apply manifest"]}],"reinforced":[]}',
+  'Example input: "Modified the build to run tsc then copy the html." → ',
+  'Example output: {"newPatterns":[{"pattern":"build the project","sequence":["run tsc","copy index.html to dist"]}],"reinforced":[]}',
   'You are shown the patterns already known — mark which are reinforced by the new notes.',
-  'Rules: be factual, never invent. `pattern` names the procedure in a short phrase; `sequence` is an',
-  'ordered list of concise steps. Output STRICT JSON only, no prose, no code fences:',
+  'Rules: be factual, never invent. `pattern` names the procedure in a short present-tense phrase;',
+  '`sequence` is an ordered list of concise steps. Output STRICT JSON only, no prose, no code fences:',
   '{"newPatterns":[{"pattern":"...","sequence":["step1","step2"]}],"reinforced":["<id>"]}',
 ].join('\n')
 
@@ -51,7 +52,9 @@ export async function maybeExtractProcedural(
   if (ENRICH_ENABLED === 'auto' && !(await client.isAvailable())) return false
 
   const summaries = store.queryRecentSessionSummaries(projectId, 5)
-  const chunks = store.queryRecentChunks(projectId, 15)
+  // Prefer change-linked chunks (real work) over discussion/terminal noise; fall back for fresh projects.
+  let chunks = store.queryRecentChangeLinkedChunks(projectId, 15)
+  if (chunks.length < 3) chunks = store.queryRecentChunks(projectId, 15)
   const material = buildMaterial(summaries.map(s => s.summary), chunks.map(c => c.text))
   if (!material.trim()) return false
 

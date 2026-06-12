@@ -6,13 +6,16 @@ import type { SqliteStore } from '../store/sqlite-store.js'
 import { buildMaterial, isJunkText, parseJsonLoose } from './consolidate-utils.js'
 
 const SYSTEM = [
-  'You extract DURABLE, REUSABLE facts about a software project from recent coding-session notes.',
-  'A good fact is stable knowledge a future agent should keep: architecture decisions, conventions,',
-  'tech choices, constraints, gotchas. NOT transient task chatter ("fixed a typo").',
+  'You maintain a knowledge base of DURABLE facts about a software project, distilled from session notes.',
+  'The notes are mostly past-tense work narration ("Modified X to do Y", "Added Z"). Your job is to infer',
+  'the STABLE TRUTH behind the work and state it in the PRESENT TENSE: architecture, tech choices, file',
+  'responsibilities, conventions, constraints, decisions. e.g. "Modified enricher to prepend a TL;DR" →',
+  '"The enricher prepends a one-line TL;DR to code-change turns." Skip pure chatter with no project fact',
+  '(questions, terminal output, "ran the tests").',
   'You are also shown the facts already known — mark which are reinforced by the new notes, and which',
   'are now CONTRADICTED (no longer true) so they can be removed.',
-  'Rules: be factual, never invent. Each new fact is ONE sentence.',
-  'Output STRICT JSON only, no prose, no code fences:',
+  'Rules: be factual, never invent, never copy a verbatim numeric claim you are unsure of. Each fact is',
+  'ONE present-tense sentence. Output STRICT JSON only, no prose, no code fences:',
   '{"newFacts":[{"fact":"...","confidence":0.0-1.0}],"reinforced":["<id>"],"contradicted":["<id>"]}',
 ].join('\n')
 
@@ -50,7 +53,10 @@ export async function maybeExtractSemantic(
   if (ENRICH_ENABLED === 'auto' && !(await client.isAvailable())) return false
 
   const summaries = store.queryRecentSessionSummaries(projectId, 5)
-  const chunks = store.queryRecentChunks(projectId, 15)
+  // Prefer chunks tied to real code changes — they carry project facts, not discussion/terminal noise.
+  // Fall back to plain recent chunks for a fresh project that has no tracked edits yet.
+  let chunks = store.queryRecentChangeLinkedChunks(projectId, 15)
+  if (chunks.length < 3) chunks = store.queryRecentChunks(projectId, 15)
   const material = buildMaterial(summaries.map(s => s.summary), chunks.map(c => c.text))
   if (!material.trim()) return false
 

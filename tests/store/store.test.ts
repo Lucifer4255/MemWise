@@ -81,6 +81,19 @@ function main(): void {
       results.push(pass('KNN query', 'k=1 → chunk-1'))
     }
 
+    // ── queryRecentChangeLinkedChunks: only chunks tied to a change row (filters discussion noise) ──
+    {
+      const talkSig = { sig: 'd'.repeat(64), parentSig: null, promptText: 'how does X work?', sessionId: 'sess-1', source: 'claude-code', projectId: 'proj-1', ts: 1_700_000_002 }
+      store.insertPromptSig(talkSig)
+      store.insertContextChunk({ id: 'chunk-talk', sig: talkSig.sig, text: 'pure discussion, no code change', projectId: 'proj-1', ts: 1_700_000_003 }, fakeEmbedding(2))
+      const linked = store.queryRecentChangeLinkedChunks('proj-1', 10).map(c => c.id)
+      results.push(
+        linked.includes('chunk-1') && !linked.includes('chunk-talk')
+          ? pass('queryRecentChangeLinkedChunks', 'change-linked kept, discussion dropped')
+          : fail('queryRecentChangeLinkedChunks', linked.join(',')),
+      )
+    }
+
     const ftsRows = db
       .prepare(
         `SELECT c.id
@@ -203,8 +216,8 @@ function main(): void {
       fakeEmbedding(42),
     )
     const scoped = store.queryRecentMessagesScoped('proj-1', 50)
-    if (scoped.length === 1 && scoped[0]?.projectId === 'proj-1') {
-      results.push(pass('queryRecentMessagesScoped', 'returns only proj-1 messages'))
+    if (scoped.length >= 1 && scoped.every(r => r.projectId === 'proj-1')) {
+      results.push(pass('queryRecentMessagesScoped', `returns only proj-1 messages (${scoped.length})`))
     } else {
       results.push(fail('queryRecentMessagesScoped', `got ${scoped.length} rows, projectIds: ${scoped.map(r => r.projectId).join(',')}`))
     }

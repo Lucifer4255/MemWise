@@ -556,6 +556,26 @@ export class SqliteStore implements MemoryStore {
     return rows.map(rowToContextChunk)
   }
 
+  /**
+   * Recent chunks that are tied to an actual code change (JOIN `change`). These carry the durable
+   * signal — what was built and decided — whereas pure-discussion turns (questions, terminal output)
+   * have no change rows. The consolidation jobs prefer these so they extract project facts, not chatter.
+   */
+  queryRecentChangeLinkedChunks(projectId: string, limit: number): ContextChunk[] {
+    if (limit <= 0) return []
+    const rows = this.db
+      .prepare(
+        `SELECT cc.id, cc.sig, cc.text, cc.project_id, cc.ts
+         FROM context_chunk cc
+         WHERE cc.project_id = ?
+           AND EXISTS (SELECT 1 FROM change ch WHERE ch.sig = cc.sig)
+         ORDER BY cc.ts DESC
+         LIMIT ?`,
+      )
+      .all(projectId, limit) as ContextChunkRow[]
+    return rows.map(rowToContextChunk)
+  }
+
   queryRecentPromptSigs(projectId: string, limit: number): PromptSig[] {
     if (limit <= 0) return []
     // Project-scoped, NOT session-scoped — this is what makes the cross-agent handoff work:

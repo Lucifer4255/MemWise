@@ -156,6 +156,7 @@ export interface MemoryStore {
     limit: number,
   ): ContextChunk[]
   queryRecentChunks(projectId: string, limit: number): ContextChunk[]
+  queryRecentChangeLinkedChunks(projectId: string, limit: number): ContextChunk[]
   queryRecentPromptSigs(projectId: string, limit: number): PromptSig[]
   getChangesForSig(sig: string): Change[]
   getContextChunkBySig(sig: string): ContextChunk | undefined

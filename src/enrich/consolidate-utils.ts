@@ -27,13 +27,28 @@ export function parseJsonLoose<T = unknown>(raw: string): T | null {
  * lone ellipses or punctuation ("...", "-"), or fragments too short to be a durable statement. These
  * leak into storage as garbage rows otherwise. Returns true when `text` is NOT worth keeping.
  */
+/** Per-item length caps (chars) for consolidation material. Session summaries run to several KB each;
+ *  fed whole, a handful blows past a small local model's context window and it extracts NOTHING. Cap
+ *  each item so the full prompt stays within ~a few thousand tokens. */
+const SUMMARY_CAP = 700
+const NOTE_CAP = 400
+
+function clip(s: string, cap: number): string {
+  const t = s.trim()
+  return t.length <= cap ? t : t.slice(0, cap) + '…'
+}
+
 /**
- * Build the "Recent notes" block for a consolidation prompt from summaries + chunk texts, dropping
- * exact-duplicate lines (order-preserving). Repeated/near-identical chunks make small models abstain
- * — they return empty `newFacts` rather than re-extracting — so de-duping materially improves recall.
+ * Build the "Recent notes" block for a consolidation prompt from summaries + chunk texts. Clips each
+ * item to a length cap (so large summaries don't overflow the model's context — the #1 cause of empty
+ * extractions) and drops exact-duplicate lines (order-preserving), since repeated chunks make small
+ * models abstain.
  */
 export function buildMaterial(summaries: string[], notes: string[]): string {
-  const lines = [...summaries.map(s => `[summary] ${s}`), ...notes.map(n => `[note] ${n}`)]
+  const lines = [
+    ...summaries.map(s => `[summary] ${clip(s, SUMMARY_CAP)}`),
+    ...notes.map(n => `[note] ${clip(n, NOTE_CAP)}`),
+  ]
   const seen = new Set<string>()
   const deduped: string[] = []
   for (const line of lines) {

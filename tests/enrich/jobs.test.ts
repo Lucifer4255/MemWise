@@ -40,6 +40,18 @@ async function main(): Promise<void> {
     results.push(noteCount === 2 ? pass('buildMaterial dedup', '4 raw notes → 2 unique') : fail('buildMaterial dedup', `noteCount=${noteCount} :: ${m}`))
   }
 
+  // ── util: buildMaterial clips oversized summaries (whole summaries overflow a small model's ctx) ──
+  {
+    const huge = 'x'.repeat(5000)
+    const m = buildMaterial([huge], ['short note'])
+    const summaryLine = m.split('\n\n').find(l => l.startsWith('[summary]'))!
+    results.push(
+      summaryLine.length < 1000 && summaryLine.endsWith('…')
+        ? pass('buildMaterial clips', `5000-char summary → ${summaryLine.length} chars`)
+        : fail('buildMaterial clips', `len=${summaryLine.length}`),
+    )
+  }
+
   // ── Job 3: extract a new semantic fact ──
   {
     const { store } = openDatabase(':memory:')
