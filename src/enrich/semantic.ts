@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
-import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS, SEMANTIC_MIN_NEW_CHUNKS } from '../core/config.js'
+import { CONSOLIDATE_TIMEOUT_MS, ENRICH_ENABLED, SEMANTIC_MIN_NEW_CHUNKS } from '../core/config.js'
 import { isEvictable } from '../core/decay.js'
 import { GenerateClient } from '../embed/generate-client.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
-import { parseJsonLoose } from './consolidate-utils.js'
+import { buildMaterial, isJunkText, parseJsonLoose } from './consolidate-utils.js'
 
 const SYSTEM = [
   'You extract DURABLE, REUSABLE facts about a software project from recent coding-session notes.',
@@ -51,10 +51,7 @@ export async function maybeExtractSemantic(
 
   const summaries = store.queryRecentSessionSummaries(projectId, 5)
   const chunks = store.queryRecentChunks(projectId, 15)
-  const material = [
-    ...summaries.map(s => `[summary] ${s.summary}`),
-    ...chunks.map(c => `[note] ${c.text}`),
-  ].join('\n\n')
+  const material = buildMaterial(summaries.map(s => s.summary), chunks.map(c => c.text))
   if (!material.trim()) return false
 
   const known = existing.length
@@ -65,7 +62,7 @@ export async function maybeExtractSemantic(
   const now = Date.now()
   try {
     const parsed = parseJsonLoose<SemanticResponse>(
-      await client.generate(prompt, SYSTEM, ENRICH_TIMEOUT_MS),
+      await client.generate(prompt, SYSTEM, CONSOLIDATE_TIMEOUT_MS, { json: true }),
     )
     if (!parsed) return false
 
@@ -73,13 +70,19 @@ export async function maybeExtractSemantic(
     let inserted = 0
     for (const nf of parsed.newFacts ?? []) {
       const text = (nf.fact ?? '').trim()
-      if (!text) continue
+      if (isJunkText(text)) continue
       const confidence = typeof nf.confidence === 'number' ? Math.max(0, Math.min(1, nf.confidence)) : 0.6
       store.upsertSemanticFact({ id: factId(projectId, text), projectId, fact: text, confidence, lastSeen: now })
       inserted++
     }
+    // Only count reinforcements that actually matched a known fact — small models hallucinate ids
+    // (e.g. [""]), which must not be reported as work done.
+    let reinforced = 0
     for (const id of parsed.reinforced ?? []) {
-      if (existingIds.has(id)) store.reinforceSemanticFact(id, 0.6, now)
+      if (existingIds.has(id)) {
+        store.reinforceSemanticFact(id, 0.6, now)
+        reinforced++
+      }
     }
     for (const id of parsed.contradicted ?? []) {
       if (existingIds.has(id)) store.deleteSemanticFact(id)
@@ -95,11 +98,11 @@ export async function maybeExtractSemantic(
     store.insertTelemetry('job3', {
       projectId,
       inserted,
-      reinforced: (parsed.reinforced ?? []).length,
+      reinforced,
       contradicted: (parsed.contradicted ?? []).length,
       evicted,
     })
-    return inserted > 0 || (parsed.reinforced ?? []).length > 0
+    return inserted > 0 || reinforced > 0
   } catch {
     return false
   }

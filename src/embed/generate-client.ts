@@ -1,4 +1,4 @@
-import { ENRICH_MODEL, OLLAMA_URL } from '../core/config.js'
+import { ENRICH_MODEL, ENRICH_SEED, OLLAMA_URL } from '../core/config.js'
 
 /**
  * Chat/generation client for the local enrichment model (Ollama `/api/generate`). Separate from
@@ -16,8 +16,18 @@ export class GenerateClient {
     return this.model
   }
 
-  /** One-shot completion. `timeoutMs` aborts a slow model so capture never hangs. */
-  async generate(prompt: string, system: string | undefined, timeoutMs: number): Promise<string> {
+  /**
+   * One-shot completion. `timeoutMs` aborts a slow model so capture never hangs.
+   * The sampling seed is pinned (ENRICH_SEED) so identical input yields identical output —
+   * the consolidation jobs depend on this. `opts.json` constrains output to valid JSON
+   * (Ollama `format:"json"`); use it for the structured jobs, NOT the prose enricher.
+   */
+  async generate(
+    prompt: string,
+    system: string | undefined,
+    timeoutMs: number,
+    opts: { json?: boolean } = {},
+  ): Promise<string> {
     const res = await this.fetchImpl(`${this.baseUrl}/api/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -26,7 +36,8 @@ export class GenerateClient {
         prompt,
         ...(system ? { system } : {}),
         stream: false,
-        options: { temperature: 0.2 },
+        ...(opts.json ? { format: 'json' } : {}),
+        options: { temperature: 0.2, seed: ENRICH_SEED },
       }),
       signal: AbortSignal.timeout(timeoutMs),
     })

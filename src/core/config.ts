@@ -54,6 +54,14 @@ export const RETRIEVE_HYBRID_LIMIT: number = Number(process.env.MEMWISE_RETRIEVE
  */
 export const ENRICH_MODEL: string = process.env.MEMWISE_ENRICH_MODEL ?? 'qwen2.5:3b'
 export const ENRICH_TIMEOUT_MS: number = Number(process.env.MEMWISE_ENRICH_TIMEOUT_MS ?? 10_000)
+/** Consolidation jobs (semantic/procedural) summarize ~15 chunks at once → a much larger generation
+ *  than the per-turn enricher rewrite. They run OFF the hot path (async, non-blocking Stop), so they
+ *  get a longer budget; 10s aborts mid-generation and silently yields zero facts/patterns. */
+export const CONSOLIDATE_TIMEOUT_MS: number = Number(process.env.MEMWISE_CONSOLIDATE_TIMEOUT_MS ?? 45_000)
+/** Pinned sampling seed for the local generation model. Makes enrichment + consolidation
+ *  reproducible: same notes → same facts/patterns. Unseeded, qwen swings between extracting
+ *  several facts and none on identical input. Override only to deliberately re-sample. */
+export const ENRICH_SEED: number = Number(process.env.MEMWISE_ENRICH_SEED ?? 42)
 /** Tri-state: 'on' forces, 'off' disables, 'auto' probes /api/tags for ENRICH_MODEL. */
 export const ENRICH_ENABLED: 'on' | 'off' | 'auto' =
   (process.env.MEMWISE_ENRICH_ENABLED as 'on' | 'off' | 'auto' | undefined) ?? 'auto'

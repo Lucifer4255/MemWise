@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
-import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS, PROCEDURAL_MIN_NEW_CHUNKS } from '../core/config.js'
+import { CONSOLIDATE_TIMEOUT_MS, ENRICH_ENABLED, PROCEDURAL_MIN_NEW_CHUNKS } from '../core/config.js'
 import { isEvictable } from '../core/decay.js'
 import { GenerateClient } from '../embed/generate-client.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
-import { parseJsonLoose } from './consolidate-utils.js'
+import { buildMaterial, isJunkText, parseJsonLoose } from './consolidate-utils.js'
 
 const SYSTEM = [
   'You extract reusable HOW-TO procedures from recent coding-session notes — the "how we do things',
@@ -52,10 +52,7 @@ export async function maybeExtractProcedural(
 
   const summaries = store.queryRecentSessionSummaries(projectId, 5)
   const chunks = store.queryRecentChunks(projectId, 15)
-  const material = [
-    ...summaries.map(s => `[summary] ${s.summary}`),
-    ...chunks.map(c => `[note] ${c.text}`),
-  ].join('\n\n')
+  const material = buildMaterial(summaries.map(s => s.summary), chunks.map(c => c.text))
   if (!material.trim()) return false
 
   const known = existing.length
@@ -66,7 +63,7 @@ export async function maybeExtractProcedural(
   const now = Date.now()
   try {
     const parsed = parseJsonLoose<ProceduralResponse>(
-      await client.generate(prompt, SYSTEM, ENRICH_TIMEOUT_MS),
+      await client.generate(prompt, SYSTEM, CONSOLIDATE_TIMEOUT_MS, { json: true }),
     )
     if (!parsed) return false
 
@@ -74,13 +71,19 @@ export async function maybeExtractProcedural(
     let inserted = 0
     for (const np of parsed.newPatterns ?? []) {
       const pattern = (np.pattern ?? '').trim()
-      if (!pattern) continue
+      if (isJunkText(pattern)) continue
       const sequence = JSON.stringify(Array.isArray(np.sequence) ? np.sequence : [])
       store.upsertProcedural({ id: patternId(projectId, pattern), projectId, pattern, sequence, lastSeen: now })
       inserted++
     }
+    // Only count reinforcements that matched a known pattern — small models hallucinate ids (e.g. [""]),
+    // which must not be reported as work done.
+    let reinforced = 0
     for (const id of parsed.reinforced ?? []) {
-      if (existingIds.has(id)) store.reinforceProcedural(id, now)
+      if (existingIds.has(id)) {
+        store.reinforceProcedural(id, now)
+        reinforced++
+      }
     }
     let evicted = 0
     for (const p of existing) {
@@ -92,10 +95,10 @@ export async function maybeExtractProcedural(
     store.insertTelemetry('job4', {
       projectId,
       inserted,
-      reinforced: (parsed.reinforced ?? []).length,
+      reinforced,
       evicted,
     })
-    return inserted > 0 || (parsed.reinforced ?? []).length > 0
+    return inserted > 0 || reinforced > 0
   } catch {
     return false
   }

@@ -2,6 +2,7 @@ import { openDatabase } from '../../src/core/db.js'
 import { GenerateClient } from '../../src/embed/generate-client.js'
 import { maybeExtractSemantic } from '../../src/enrich/semantic.js'
 import { maybeExtractProcedural } from '../../src/enrich/procedural.js'
+import { buildMaterial, isJunkText } from '../../src/enrich/consolidate-utils.js'
 import type { SqliteStore } from '../../src/store/sqlite-store.js'
 
 type TestResult = { name: string; ok: boolean; detail: string }
@@ -24,6 +25,20 @@ function seedChunk(store: SqliteStore, sig: string, text: string, ts: number): v
 
 async function main(): Promise<void> {
   const results: TestResult[] = []
+
+  // ── util: isJunkText rejects placeholders, keeps real statements ──
+  {
+    const junk = ['...', '', '  ', '--', 'ok'].every(isJunkText)
+    const real = !isJunkText('Persistence uses better-sqlite3 with sqlite-vec')
+    results.push(junk && real ? pass('isJunkText guard', 'placeholders rejected, real kept') : fail('isJunkText guard', `junk=${junk} real=${real}`))
+  }
+
+  // ── util: buildMaterial dedupes identical lines (small models abstain on dup-heavy input) ──
+  {
+    const m = buildMaterial(['s1'], ['note A', 'note A', 'note B', 'NOTE A'])
+    const noteCount = (m.match(/\[note\]/g) ?? []).length
+    results.push(noteCount === 2 ? pass('buildMaterial dedup', '4 raw notes → 2 unique') : fail('buildMaterial dedup', `noteCount=${noteCount} :: ${m}`))
+  }
 
   // ── Job 3: extract a new semantic fact ──
   {
@@ -110,6 +125,37 @@ async function main(): Promise<void> {
       wrote && procs.length === 1 && JSON.parse(procs[0]!.sequence).length === 4
         ? pass('Job 4 extract pattern', '1 pattern, 4 steps')
         : fail('Job 4 extract pattern', `wrote=${wrote} procs=${JSON.stringify(procs)}`),
+    )
+  }
+
+  // ── Job 3: junk fact ("...") is not stored ──
+  {
+    const { store } = openDatabase(':memory:')
+    seedChunk(store, '1'.repeat(64), 'real durable note about the architecture', 5000)
+    const wrote = await maybeExtractSemantic(store, PROJ, {
+      minNewChunks: 1,
+      client: fakeModelClient('{"newFacts":[{"fact":"...","confidence":1},{"fact":"Uses RRF to fuse vector and FTS5","confidence":0.9}],"reinforced":[],"contradicted":[]}'),
+    })
+    const facts = store.querySemanticFacts(PROJ, 10)
+    results.push(
+      wrote && facts.length === 1 && facts[0]!.fact.includes('RRF')
+        ? pass('Job 3 junk fact filtered', 'placeholder "..." dropped, real fact kept')
+        : fail('Job 3 junk fact filtered', JSON.stringify(facts)),
+    )
+  }
+
+  // ── Job 4: hallucinated reinforced id ([""]) must NOT report success ──
+  {
+    const { store } = openDatabase(':memory:')
+    seedChunk(store, '2'.repeat(64), 'some notes with no clear procedure', 5000)
+    const wrote = await maybeExtractProcedural(store, PROJ, {
+      minNewChunks: 1,
+      client: fakeModelClient('{"newPatterns":[],"reinforced":[""]}'),
+    })
+    results.push(
+      !wrote && store.queryProcedural(PROJ, 10).length === 0
+        ? pass('Job 4 no false-positive', 'empty + junk reinforced id → returns false')
+        : fail('Job 4 no false-positive', `wrote=${wrote} (should be false)`),
     )
   }
 
