@@ -1,5 +1,5 @@
 import { cwd } from 'node:process'
-import { RETRIEVE_HYBRID_LIMIT, RETRIEVE_MAX_TOKENS } from '../core/config.js'
+import { DURABLE_TIERS_ENABLED, RETRIEVE_HYBRID_LIMIT, RETRIEVE_MAX_TOKENS } from '../core/config.js'
 import { getDefaultStore } from '../core/db.js'
 import { defaultOllamaEmbed } from '../embed/ollama-client.js'
 import { projectIdFromPath } from '../core/project.js'
@@ -72,7 +72,8 @@ export async function retrieve(
     bundle.latestSummary = store.queryLatestSessionSummary(projectId)
   }
   // Durable tiers (M2): surface the project's top facts/workflows in semantic + session modes.
-  if (mode === 'session' || mode === 'semantic') {
+  // Off by default for v0.1 (MEMWISE_DURABLE_TIERS=on to enable).
+  if (DURABLE_TIERS_ENABLED && (mode === 'session' || mode === 'semantic')) {
     bundle.semanticFacts = store.querySemanticFacts(projectId, 8)
     bundle.proceduralPatterns = store.queryProcedural(projectId, 5)
   }

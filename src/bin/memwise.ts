@@ -146,9 +146,13 @@ program
     const report = (name: string, wrote: boolean) =>
       console.log(`[memwise] ${name}: ${wrote ? 'wrote' : 'nothing (gate not met or no chat model)'}`)
 
+    const { DURABLE_TIERS_ENABLED } = await import('../core/config.js')
     if (!only || only === 'episodic') report('episodic', await maybeConsolidate(store, projectId, { minNewChunks: 1 }))
-    if (!only || only === 'semantic') report('semantic', await maybeExtractSemantic(store, projectId, { minNewChunks: 1 }))
-    if (!only || only === 'procedural') report('procedural', await maybeExtractProcedural(store, projectId, { minNewChunks: 1 }))
+    // Durable tiers are off by default for v0.1 (MEMWISE_DURABLE_TIERS=on to enable).
+    if (DURABLE_TIERS_ENABLED && (!only || only === 'semantic')) report('semantic', await maybeExtractSemantic(store, projectId, { minNewChunks: 1 }))
+    else if (only === 'semantic') console.log('[memwise] semantic: disabled (set MEMWISE_DURABLE_TIERS=on)')
+    if (DURABLE_TIERS_ENABLED && (!only || only === 'procedural')) report('procedural', await maybeExtractProcedural(store, projectId, { minNewChunks: 1 }))
+    else if (only === 'procedural') console.log('[memwise] procedural: disabled (set MEMWISE_DURABLE_TIERS=on)')
     process.exit(0)
   })
 

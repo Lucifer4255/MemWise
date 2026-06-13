@@ -1,6 +1,6 @@
 import { getAdapter } from '../adapters/index.js'
 import type { AgentSource, TranscriptHint } from '../adapters/common.js'
-import { EPISODIC_MIN_NEW_CHUNKS } from '../core/config.js'
+import { DURABLE_TIERS_ENABLED, EPISODIC_MIN_NEW_CHUNKS } from '../core/config.js'
 import { Embedder } from '../embed/embedder.js'
 import type { EmbedFn } from '../embed/ollama-client.js'
 import { Enricher } from '../enrich/enricher.js'
@@ -88,8 +88,10 @@ export async function captureFromTranscript(
     // All three consolidation jobs run opportunistically in the async (non-blocking) Stop path,
     // each gated by its own threshold so the durable tiers fire far less often than episodic.
     await maybeConsolidate(store, projectId, { minNewChunks: EPISODIC_MIN_NEW_CHUNKS, enricher })
-    await maybeExtractSemantic(store, projectId)
-    await maybeExtractProcedural(store, projectId)
+    if (DURABLE_TIERS_ENABLED) {
+      await maybeExtractSemantic(store, projectId)
+      await maybeExtractProcedural(store, projectId)
+    }
   }
 
   return { sessionId, projectId, captured, turns }
