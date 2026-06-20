@@ -1,5 +1,5 @@
 import type { EmbedFn } from '../embed/ollama-client.js'
-import type { Change, ContextChunk, MemoryStore, ProceduralPattern, PromptSig, SemanticFact, SessionSummary, SymbolDep } from '../store/memory-store.js'
+import type { Change, ContextChunk, DecisionNode, MemoryStore, ProceduralPattern, PromptSig, SemanticFact, SessionSummary, SymbolDep } from '../store/memory-store.js'
 
 export type RetrieveMode = 'recency' | 'symbol' | 'semantic' | 'session'
 
@@ -28,6 +28,8 @@ export interface ContextBundle {
   semanticFacts?: SemanticFact[]
   /** Durable procedural patterns for the project (M2) → "Workflows" section. */
   proceduralPatterns?: ProceduralPattern[]
+  /** Layer 14 — active (non-superseded) decisions relevant to the query → "Decisions" section. */
+  decisions?: DecisionNode[]
 }
 
 export interface RetrieveOptions {

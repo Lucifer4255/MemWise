@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto'
 import { EPISODIC_MIN_NEW_CHUNKS } from '../core/config.js'
 import { GenerateClient } from '../embed/generate-client.js'
 import { ENRICH_ENABLED, ENRICH_TIMEOUT_MS } from '../core/config.js'
+import { defaultOllamaEmbed, type EmbedFn } from '../embed/ollama-client.js'
 import type { Enricher } from './enricher.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
 
@@ -15,6 +17,8 @@ export interface ConsolidateOpts {
   /** Only used to detect "is a model available" cheaply; the merge uses its own GenerateClient. */
   enricher?: Enricher
   client?: GenerateClient
+  /** Embeds the merged summary so the session becomes a vector-searchable graph node (Layer 14). */
+  embedFn?: EmbedFn
 }
 
 /**
@@ -51,16 +55,39 @@ export async function maybeConsolidate(
       await client.generate(`Notes from recent work:\n\n${material}\n\nWrite the recap:`, SYSTEM, ENRICH_TIMEOUT_MS)
     ).trim()
     if (!merged) return false
-    store.insertSessionSummary({
-      projectId,
-      source: 'nightshift',
-      sigRange: '',
-      summary: merged,
-      ts: Date.now(),
-    })
+
+    // Layer 14: write the consolidated recap as a SESSION GRAPH NODE (Tier 3) — not just a flat row.
+    // node_sig is keyed by the member-turn span so an identical window updates ONE node; a new window
+    // (more work done) creates a new session node. The node carries the summary's embedding (so it's
+    // vector-searchable for coarse-to-fine retrieval) and `summarizes` edges to its member turns.
+    const members = [...chunks].sort((a, b) => a.ts - b.ts) // chronological
+    const memberSigs = [...new Set(members.map(c => c.sig))]
+    const sigRange =
+      memberSigs.length > 0 ? `${memberSigs[0]}..${memberSigs[memberSigs.length - 1]}` : ''
+    const nodeSig = `sess:${createHash('sha256').update(`${projectId}|${sigRange}`).digest('hex').slice(0, 16)}`
+    const ts = Date.now()
+
+    // Embedding is best-effort: if the embedder is unavailable, store the node vector-less (it still
+    // participates as a graph node via summarizes edges; a catch-up embed can fill the vector later).
+    let embedding: number[] = []
+    try {
+      embedding = await (opts.embedFn ?? defaultOllamaEmbed)(merged)
+    } catch {
+      embedding = []
+    }
+
+    store.upsertSessionNode(
+      { nodeSig, projectId, source: 'nightshift', sigRange, summary: merged, ts },
+      embedding,
+    )
+    for (const sig of memberSigs) {
+      store.insertTurnEdgeOrIgnore({ fromSig: nodeSig, toSig: sig, edgeType: 'summarizes', label: '', ts })
+    }
     store.insertTelemetry('job2', {
       projectId,
       inputs: summaries.length + chunks.length,
+      members: memberSigs.length,
+      embedded: embedding.length > 0,
       chars: merged.length,
     })
     return true

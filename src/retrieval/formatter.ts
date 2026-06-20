@@ -1,6 +1,6 @@
 import { RETRIEVE_MAX_TOKENS } from '../core/config.js'
 import { estimateTokens } from '../core/tokens.js'
-import type { Change, ContextChunk, ProceduralPattern, PromptSig, SemanticFact, SessionSummary, SymbolDep } from '../store/memory-store.js'
+import type { Change, ContextChunk, DecisionNode, ProceduralPattern, PromptSig, SemanticFact, SessionSummary, SymbolDep } from '../store/memory-store.js'
 import type { AnchorHit, ContextBundle, RetrieveMode } from './types.js'
 
 export const EMPTY_BLOCK = '## memwise context\n(no matching memory)'
@@ -114,6 +114,14 @@ function formatFacts(facts: SemanticFact[]): string[] {
   })
 }
 
+function formatDecisions(decisions: DecisionNode[]): string[] {
+  return decisions.map(d => {
+    const stmt = d.statement.replace(/\s+/g, ' ').trim()
+    const why = d.rationale.replace(/\s+/g, ' ').trim()
+    return why ? `- ${stmt} — because ${why}` : `- ${stmt}`
+  })
+}
+
 function formatPatterns(patterns: ProceduralPattern[]): string[] {
   return patterns.map(p => {
     let steps: string[] = []
@@ -156,20 +164,28 @@ function buildSectionList(bundle: ContextBundle): { sections: Section[]; trimOrd
   // Lowest priority → front of trimOrder (trimmed first).
   const durableTrim = ['workflows', 'facts']
 
+  // Layer 14 — Decisions ("why X, because Y"). More load-bearing than facts/workflows/connected,
+  // so it sits after "Why" in the layout and is trimmed only after those lighter sections.
+  const decisionLines = formatDecisions(bundle.decisions ?? [])
+  const decisions: Section | null = decisionLines.length > 0
+    ? { key: 'decisions', title: 'Decisions', body: section('Decisions', decisionLines) }
+    : null
+  const dec = decisions ? [decisions] : []
+
   if (bundle.mode === 'session') {
     const working: Section = { key: 'working', title: 'Working on', body: section('Working on', formatWorkingOn(bundle.recentPrompts ?? [])) }
-    const sections = [working, relevant, why, watch, ...(connected ? [connected] : []), ...durable]
+    const sections = [working, relevant, why, ...dec, watch, ...(connected ? [connected] : []), ...durable]
     return {
       sections,
-      trimOrder: [...durableTrim, 'connected', 'watch', 'why', 'relevant', 'working'],
+      trimOrder: [...durableTrim, 'connected', 'watch', 'decisions', 'why', 'relevant', 'working'],
     }
   }
 
   const lastWork: Section = { key: 'lastWork', title: 'Last work here', body: section('Last work here', formatLastWork(bundle.latestSummary)) }
-  const sections = [relevant, why, lastWork, watch, ...(connected ? [connected] : []), ...durable]
+  const sections = [relevant, why, ...dec, lastWork, watch, ...(connected ? [connected] : []), ...durable]
   return {
     sections,
-    trimOrder: [...durableTrim, 'connected', 'watch', 'lastWork', 'why', 'relevant'],
+    trimOrder: [...durableTrim, 'connected', 'watch', 'lastWork', 'decisions', 'why', 'relevant'],
   }
 }
 

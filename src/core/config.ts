@@ -72,6 +72,13 @@ export const ENRICH_ENABLED: 'on' | 'off' | 'auto' =
  *  are not consolidated, retrieved, or surfaced. Set MEMWISE_DURABLE_TIERS=on to re-enable. */
 export const DURABLE_TIERS_ENABLED: boolean = process.env.MEMWISE_DURABLE_TIERS === 'on'
 
+/** Layer 14 — Decision tier (Job 5): promote the parent/"Why" chain into Decision graph nodes with
+ *  realized_by + supersedes edges. Default OFF (LLM-driven extraction; quality being validated, same
+ *  posture as the durable tiers). Set MEMWISE_DECISION_TIER=on to enable. */
+export const DECISION_TIER_ENABLED: boolean = process.env.MEMWISE_DECISION_TIER === 'on'
+/** Job 5 fires once this many new change-linked chunks land since the last decision extraction. */
+export const DECISION_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_DECISION_MIN_NEW_CHUNKS ?? 15)
+
 /** Job 2 episodic consolidation fires once this many new chunks land since the last nightshift row. */
 export const EPISODIC_MIN_NEW_CHUNKS: number = Number(process.env.MEMWISE_EPISODIC_MIN_NEW_CHUNKS ?? 10)
 

@@ -94,7 +94,7 @@ export interface CaptureCursor {
   ts: number
 }
 
-export type TelemetryKind = 'message' | 'enrich' | 'embed' | 'job2' | 'job3' | 'job4'
+export type TelemetryKind = 'message' | 'enrich' | 'embed' | 'job2' | 'job3' | 'job4' | 'job5'
 
 export interface TelemetryEvent {
   id: number

@@ -7,6 +7,7 @@ import { Enricher } from '../enrich/enricher.js'
 import { maybeConsolidate } from '../enrich/episodic.js'
 import { maybeExtractSemantic } from '../enrich/semantic.js'
 import { maybeExtractProcedural } from '../enrich/procedural.js'
+import { maybeExtractDecisions } from '../enrich/decisions.js'
 import { BracketManager } from './bracket.js'
 import { projectIdFromPath } from '../core/project.js'
 import type { SqliteStore } from '../store/sqlite-store.js'
@@ -92,6 +93,8 @@ export async function captureFromTranscript(
       await maybeExtractSemantic(store, projectId)
       await maybeExtractProcedural(store, projectId)
     }
+    // Layer 14 decision tier — self-gated by MEMWISE_DECISION_TIER (default off).
+    await maybeExtractDecisions(store, projectId)
   }
 
   return { sessionId, projectId, captured, turns }
