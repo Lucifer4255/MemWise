@@ -36,15 +36,46 @@ export interface SymbolDep {
   toFile: string
 }
 
-/** A directed edge in the turn graph (v6).
+/** A directed edge in the turn graph (v6 + v8/Layer 14).
  *  'file'/'symbol' edges: from=newer turn, to=most-recent prior turn touching the same file/symbol.
- *  'forward' edge: from=parent turn, to=child turn (spine direction, enables forward traversal). */
+ *  'forward' edge: from=parent turn, to=child turn (spine direction, enables forward traversal).
+ *  Layer 14 adds three edge types that hang ABOVE the spine (the spine itself stays append-only):
+ *  'summarizes'  from=session node id ('sess:<nodeSig>')  to=member turn sig.
+ *  'realized_by' from=decision node id ('dec:<id>')       to=turn that realized the decision.
+ *  'supersedes'  from=newer decision id ('dec:<id>')      to=older decision id it overrides. */
+export type EdgeType = 'file' | 'symbol' | 'forward' | 'summarizes' | 'realized_by' | 'supersedes'
 export interface TurnEdge {
   fromSig: string
   toSig: string
-  edgeType: 'file' | 'symbol' | 'forward'
+  edgeType: EdgeType
   label: string
   ts: number
+}
+
+/** Layer 14 — a session as a first-class GRAPH NODE (Tier 3). Carries its own embedding (stored in
+ *  chunk_vec under id `nodeSig`, which is namespaced 'sess:<hash>') and `summarizes` edges to its
+ *  member turns. Mutable rollup: re-summarizing the same session updates ONE node (stable nodeSig). */
+export interface SessionNode {
+  nodeSig: string
+  projectId: string
+  source: 'postcompact' | 'nightshift'
+  sigRange: string
+  summary: string
+  ts: number
+}
+
+/** Layer 14 — a Decision node (Tier 2): a promoted "why" extracted from the parent/Why chain.
+ *  Embedding stored in chunk_vec under id 'dec:<id>'. `supersededBy` is '' while current; set to the
+ *  newer decision's id when overridden (the row is kept, never deleted — "what changed" stays answerable). */
+export interface DecisionNode {
+  id: string
+  projectId: string
+  statement: string
+  rationale: string
+  confidence: number
+  createdTs: number
+  lastSeen: number
+  supersededBy: string
 }
 
 export interface SessionSummary {
@@ -171,4 +202,23 @@ export interface MemoryStore {
   getPriorTurnForSymbol(symbol: string, projectId: string, excludeSig: string): string | undefined
   /** All edges where `sig` is either endpoint — both directions in one call. */
   getEdgeNeighbors(sig: string, limit: number): TurnEdge[]
+  // ── Layer 14: session graph nodes (Tier 3) ──────────────────────────────────────────────────
+  /** Upsert a session node by stable `nodeSig` (updates one row, never duplicates) and (re)store its
+   *  embedding in chunk_vec under id `nodeSig`. Empty `embedding` writes the node vector-less. */
+  upsertSessionNode(node: SessionNode, embedding: number[]): void
+  /** Coarse-to-fine entry: the project's session nodes nearest to `embedding` (vector match). */
+  querySessionNodesByVector(projectId: string, embedding: number[], limit: number): SessionNode[]
+  /** Member turn sigs of a session node, via its 'summarizes' edges (drill-down). */
+  getSessionMemberTurns(nodeSig: string): string[]
+  // ── Layer 14: decision graph nodes (Tier 2) ─────────────────────────────────────────────────
+  /** Upsert a decision by `id` and (re)store its embedding in chunk_vec under id 'dec:<id>'. */
+  upsertDecision(decision: DecisionNode, embedding: number[]): void
+  /** Link a decision to the turns that realized it ('realized_by' edges). */
+  insertRealizedByEdges(decisionId: string, turnSigs: string[], ts: number): void
+  /** Record that `newId` supersedes `oldId`: stamp superseded_by + write a 'supersedes' edge. */
+  markDecisionSuperseded(oldId: string, newId: string, ts: number): void
+  /** Active (non-superseded) decisions for a project — the "current" view, decay-ranked. */
+  queryActiveDecisions(projectId: string, limit: number): DecisionNode[]
+  /** Decision nodes nearest to `embedding` (active only) — "why X?" entry by similarity. */
+  queryDecisionsByVector(projectId: string, embedding: number[], limit: number): DecisionNode[]
 }

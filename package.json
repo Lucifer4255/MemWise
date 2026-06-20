@@ -24,7 +24,7 @@
   "scripts": {
     "build": "tsc && cp src/dashboard/index.html dist/dashboard/index.html",
     "prepublishOnly": "npm run build && npm test",
-    "test": "npx tsx tests/smoke.ts && npx tsx tests/store/store.test.ts && npx tsx tests/store/migration.test.ts && npx tsx tests/store/turn-graph.test.ts && npx tsx tests/capture/bracket.test.ts && npx tsx tests/parser/parser.test.ts && MEMWISE_DURABLE_TIERS=on npx tsx tests/retrieval/retrieval.test.ts && npx tsx tests/replay/replay.test.ts && npx tsx tests/replay/transcript-readers.test.ts && npx tsx tests/cli/hook.test.ts && npx tsx tests/enrich/enricher.test.ts && npx tsx tests/enrich/jobs.test.ts && npx tsx tests/adapters/adapters.test.ts && npx tsx tests/dashboard/dashboard.test.ts",
+    "test": "npx tsx tests/smoke.ts && npx tsx tests/store/store.test.ts && npx tsx tests/store/migration.test.ts && npx tsx tests/store/turn-graph.test.ts && npx tsx tests/store/layer14.test.ts && npx tsx tests/capture/bracket.test.ts && npx tsx tests/parser/parser.test.ts && MEMWISE_DURABLE_TIERS=on npx tsx tests/retrieval/retrieval.test.ts && npx tsx tests/replay/replay.test.ts && npx tsx tests/replay/transcript-readers.test.ts && npx tsx tests/cli/hook.test.ts && npx tsx tests/enrich/enricher.test.ts && npx tsx tests/enrich/jobs.test.ts && npx tsx tests/adapters/adapters.test.ts && npx tsx tests/dashboard/dashboard.test.ts",
     "test:hook": "npx tsx tests/cli/hook.test.ts",
     "test:enrich": "npx tsx tests/enrich/enricher.test.ts",
     "test:jobs": "npx tsx tests/enrich/jobs.test.ts",
