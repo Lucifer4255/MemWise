@@ -3,5 +3,6 @@ node_modules
 dist/
 memwise-spec.md
 plan.md
+simulation.md
 am/
 eval/labels.*.json
