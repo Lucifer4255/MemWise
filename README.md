@@ -92,7 +92,7 @@ Capture and retrieval are single SQLite transactions. Latency stays **flat as th
 For contrast, agentmemory rebuilds its full in-memory index on every write batch: **177 ms at 240 rows, ~1.7 s at 10k rows**. MemWise's write path doesn't scale with corpus size.
 
 ```bash
-BENCH_N=500 npx tsx eval/p99.ts       # reproduce
+BENCH_N=500 npx tsx bench/p99.ts      # reproduce
 ```
 
 ---
