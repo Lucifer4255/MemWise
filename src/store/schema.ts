@@ -8,7 +8,7 @@ import { EMBED_DIM } from '../core/config.js'
  * blind once a shipped DB needs to gain a column. `CREATE … IF NOT EXISTS` never
  * alters existing tables, so additive changes still need an explicit migration.
  */
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 export function schemaSql(embedDim: number = EMBED_DIM): string {
   return `
@@ -109,9 +109,39 @@ CREATE TABLE IF NOT EXISTS session_summary (
   source TEXT NOT NULL DEFAULT 'nightshift',
   sig_range TEXT NOT NULL,
   summary TEXT NOT NULL,
-  ts INTEGER NOT NULL
+  ts INTEGER NOT NULL,
+  -- v8 (Layer 14): stable identity for the session as a GRAPH NODE. A re-summarized session keeps
+  -- the same node_sig so it UPDATES one node instead of duplicating. Its embedding lives in
+  -- chunk_vec under id 'sess:<node_sig>'; its member turns are linked via turn_edge 'summarizes'.
+  -- The node_sig column is added in migrateAdditiveColumns for pre-v8 DBs.
+  node_sig TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_session_summary_project ON session_summary(project_id, ts DESC);
+-- NOTE: the node_sig index is created in migrateAdditiveColumns(), AFTER the ALTER TABLE that adds
+-- node_sig to a pre-v8 DB — creating it here would fail with "no such column" on an existing DB
+-- where CREATE TABLE IF NOT EXISTS is a no-op (same pattern as the v7 semantic/procedural indexes).
+
+-- v8 (Layer 14): Decision tier — a promoted "why" extracted from the parent/Why chain, as a
+-- first-class node so "why did we pick X" is one hop, not a chain walk. Embedding lives in
+-- chunk_vec under id 'dec:<id>'. Linked to the turns that realized it via turn_edge 'realized_by';
+-- a newer decision that contradicts an older one writes a turn_edge 'supersedes' (dec node→dec node)
+-- and stamps superseded_by here (kept, never deleted — "what changed" stays answerable).
+CREATE TABLE IF NOT EXISTS decision (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL DEFAULT '',
+  statement TEXT NOT NULL,
+  rationale TEXT NOT NULL DEFAULT '',
+  confidence REAL NOT NULL DEFAULT 0,
+  created_ts INTEGER NOT NULL DEFAULT 0,
+  last_seen INTEGER NOT NULL DEFAULT 0,
+  superseded_by TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_decision_project ON decision(project_id, last_seen DESC);
+
+-- NOTE: turn_edge.edge_type is TEXT and gains three Layer-14 values with NO DDL change:
+--   'summarizes'   Session node  → member Turn      (coarse-to-fine drill-down)
+--   'realized_by'  Decision node → Turn             ("why" one-hop attach)
+--   'supersedes'   Decision node → older Decision   (temporal: current vs stale)
 
 -- v7: Semantic tier — durable extracted facts. project_id scopes to a repo; support counts
 -- reinforcement (re-observation); last_seen drives time-decay (see src/enrich/decay.ts).
@@ -198,6 +228,11 @@ function migrateAdditiveColumns(db: Database.Database): void {
   addIfMissing('procedural', 'project_id', `project_id TEXT NOT NULL DEFAULT ''`)
   addIfMissing('procedural', 'created_ts', 'created_ts INTEGER NOT NULL DEFAULT 0')
   addIfMissing('procedural', 'last_seen', 'last_seen INTEGER NOT NULL DEFAULT 0')
+
+  // v8 (Layer 14): session-as-graph-node identity. Additive on pre-v8 DBs; existing summaries get
+  // node_sig='' and are backfilled lazily by the night-shift when re-summarized.
+  addIfMissing('session_summary', 'node_sig', `node_sig TEXT NOT NULL DEFAULT ''`)
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_session_summary_node ON session_summary(node_sig)`)
 
   // Indexes on the v7 columns — created here (not in schemaSql) so the ALTERs above guarantee the
   // columns exist first, on both fresh and pre-v7 databases.

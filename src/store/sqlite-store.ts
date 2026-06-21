@@ -6,12 +6,14 @@ import type {
   CaptureCursor,
   Change,
   ContextChunk,
+  DecisionNode,
   MemoryStore,
   ProceduralPattern,
   ProjectSummary,
   PromptSig,
   RecentMessage,
   SemanticFact,
+  SessionNode,
   SessionSummary,
   Source,
   SymbolDep,
@@ -96,6 +98,50 @@ function rowToSymbolDep(row: SymbolDepRow): SymbolDep {
     fromFile: row.from_file,
     toSymbol: row.to_symbol,
     toFile: row.to_file,
+  }
+}
+
+type SessionNodeRow = {
+  node_sig: string
+  project_id: string
+  source: string
+  sig_range: string
+  summary: string
+  ts: number
+}
+
+function rowToSessionNode(row: SessionNodeRow): SessionNode {
+  return {
+    nodeSig: row.node_sig,
+    projectId: row.project_id,
+    source: row.source as SessionNode['source'],
+    sigRange: row.sig_range,
+    summary: row.summary,
+    ts: row.ts,
+  }
+}
+
+type DecisionRow = {
+  id: string
+  project_id: string
+  statement: string
+  rationale: string
+  confidence: number
+  created_ts: number
+  last_seen: number
+  superseded_by: string
+}
+
+function rowToDecision(row: DecisionRow): DecisionNode {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    statement: row.statement,
+    rationale: row.rationale,
+    confidence: row.confidence,
+    createdTs: row.created_ts,
+    lastSeen: row.last_seen,
+    supersededBy: row.superseded_by,
   }
 }
 
@@ -779,6 +825,166 @@ export class SqliteStore implements MemoryStore {
       label: r.label,
       ts: r.ts,
     }))
+  }
+
+  // ── Layer 14: session graph nodes (Tier 3) ──────────────────────────────────────────────────
+  upsertSessionNode(node: SessionNode, embedding: number[]): void {
+    this.runTransaction(() => {
+      // Stable nodeSig → update ONE row; never duplicate a re-summarized session.
+      const res = this.db
+        .prepare(
+          `UPDATE session_summary SET project_id = ?, source = ?, sig_range = ?, summary = ?, ts = ?
+           WHERE node_sig = ?`,
+        )
+        .run(node.projectId, node.source, node.sigRange, node.summary, node.ts, node.nodeSig)
+      if (res.changes === 0) {
+        this.db
+          .prepare(
+            `INSERT INTO session_summary (project_id, source, sig_range, summary, ts, node_sig)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+          )
+          .run(node.projectId, node.source, node.sigRange, node.summary, node.ts, node.nodeSig)
+      }
+      // (re)store the session vector keyed by the namespaced node id.
+      this.db.prepare(`DELETE FROM chunk_vec WHERE chunk_id = ?`).run(node.nodeSig)
+      if (embedding.length > 0) {
+        this.db
+          .prepare(`INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, ?)`)
+          .run(node.nodeSig, embeddingToBuffer(embedding))
+      }
+    })
+  }
+
+  querySessionNodesByVector(
+    projectId: string,
+    embedding: number[],
+    limit: number,
+  ): SessionNode[] {
+    if (embedding.length === 0 || limit <= 0) return []
+    // chunk_vec holds turn + session + decision vectors, so over-fetch the KNN then keep sessions
+    // (joined by node_sig = chunk_id) for this project.
+    const k = Math.min(Math.max(limit * 20, 50), 500)
+    const rows = this.db
+      .prepare(
+        `SELECT s.node_sig, s.project_id, s.source, s.sig_range, s.summary, s.ts
+         FROM chunk_vec v
+         JOIN session_summary s ON s.node_sig = v.chunk_id
+         WHERE s.project_id = ? AND v.embedding MATCH ? AND k = ?
+         ORDER BY distance
+         LIMIT ?`,
+      )
+      .all(projectId, embeddingToBuffer(embedding), k, limit) as {
+      node_sig: string
+      project_id: string
+      source: string
+      sig_range: string
+      summary: string
+      ts: number
+    }[]
+    return rows.map(r => rowToSessionNode(r))
+  }
+
+  getSessionMemberTurns(nodeSig: string): string[] {
+    const rows = this.db
+      .prepare(
+        `SELECT to_sig FROM turn_edge WHERE from_sig = ? AND edge_type = 'summarizes' ORDER BY ts`,
+      )
+      .all(nodeSig) as { to_sig: string }[]
+    return rows.map(r => r.to_sig)
+  }
+
+  // ── Layer 14: decision graph nodes (Tier 2) ─────────────────────────────────────────────────
+  upsertDecision(d: DecisionNode, embedding: number[]): void {
+    this.runTransaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO decision (id, project_id, statement, rationale, confidence, created_ts, last_seen, superseded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             statement = excluded.statement,
+             rationale = excluded.rationale,
+             confidence = MAX(decision.confidence, excluded.confidence),
+             last_seen = excluded.last_seen`,
+        )
+        .run(
+          d.id,
+          d.projectId,
+          d.statement,
+          d.rationale,
+          d.confidence,
+          d.createdTs,
+          d.lastSeen,
+          d.supersededBy,
+        )
+      const vid = `dec:${d.id}`
+      this.db.prepare(`DELETE FROM chunk_vec WHERE chunk_id = ?`).run(vid)
+      if (embedding.length > 0) {
+        this.db
+          .prepare(`INSERT INTO chunk_vec (chunk_id, embedding) VALUES (?, ?)`)
+          .run(vid, embeddingToBuffer(embedding))
+      }
+    })
+  }
+
+  insertRealizedByEdges(decisionId: string, turnSigs: string[], ts: number): void {
+    const from = `dec:${decisionId}`
+    this.runTransaction(() => {
+      for (const sig of turnSigs) {
+        this.insertTurnEdgeOrIgnore({ fromSig: from, toSig: sig, edgeType: 'realized_by', label: '', ts })
+      }
+    })
+  }
+
+  markDecisionSuperseded(oldId: string, newId: string, ts: number): void {
+    this.runTransaction(() => {
+      this.db.prepare(`UPDATE decision SET superseded_by = ? WHERE id = ?`).run(newId, oldId)
+      this.insertTurnEdgeOrIgnore({
+        fromSig: `dec:${newId}`,
+        toSig: `dec:${oldId}`,
+        edgeType: 'supersedes',
+        label: '',
+        ts,
+      })
+    })
+  }
+
+  queryActiveDecisions(projectId: string, limit: number): DecisionNode[] {
+    if (limit <= 0) return []
+    const rows = this.db
+      .prepare(
+        `SELECT id, project_id, statement, rationale, confidence, created_ts, last_seen, superseded_by
+         FROM decision WHERE project_id = ? AND superseded_by = '' ORDER BY last_seen DESC LIMIT 500`,
+      )
+      .all(projectId) as DecisionRow[]
+    const now = Date.now()
+    return rows
+      .map(rowToDecision)
+      .sort(
+        (a, b) =>
+          decayScore(1, b.lastSeen, now) * Math.max(b.confidence, 0.01) -
+          decayScore(1, a.lastSeen, now) * Math.max(a.confidence, 0.01),
+      )
+      .slice(0, limit)
+  }
+
+  queryDecisionsByVector(
+    projectId: string,
+    embedding: number[],
+    limit: number,
+  ): DecisionNode[] {
+    if (embedding.length === 0 || limit <= 0) return []
+    const k = Math.min(Math.max(limit * 20, 50), 500)
+    const rows = this.db
+      .prepare(
+        `SELECT d.id, d.project_id, d.statement, d.rationale, d.confidence, d.created_ts, d.last_seen, d.superseded_by
+         FROM chunk_vec v
+         JOIN decision d ON ('dec:' || d.id) = v.chunk_id
+         WHERE d.project_id = ? AND d.superseded_by = '' AND v.embedding MATCH ? AND k = ?
+         ORDER BY distance
+         LIMIT ?`,
+      )
+      .all(projectId, embeddingToBuffer(embedding), k, limit) as DecisionRow[]
+    return rows.map(rowToDecision)
   }
 
   private queryVector(embedding: number[], limit: number): string[] {
