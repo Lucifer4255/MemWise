@@ -12,9 +12,9 @@ Your AI never loses the thread — not after `/compact`, not in a brand-new sess
 
 ## Demo
 
-<!-- Demo video to be attached -->
+▶️ **[Watch the demo (Loom)](https://www.loom.com/share/98340a12c7da4f3e97ab2b05a55cf628)**
 
-> 📹 *Demo video coming soon.*
+<!-- TODO: replace with an embedded GIF/thumbnail once recorded -->
 
 ---
 
