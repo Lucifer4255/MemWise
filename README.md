@@ -44,10 +44,7 @@ memwise init     # writes hooks to ~/.claude/settings.json, ~/.cursor/hooks.json
                  # launches the dashboard at localhost:4242
 ```
 
-That's it. From here MemWise captures every turn automatically, and your agent calls two MCP tools on its own:
-
-- **`memwise_recent`** — *"catch me up / where did we leave off"* → last N turns + session summary.
-- **`memwise_query`** — *"why did we change X", "what's the role of Y"* → hybrid RAG search over past turns, code changes, and the decision chain.
+That's it. From here MemWise captures every turn automatically and your agent calls its MCP tools on its own — see [Usage](#usage).
 
 Override the DB path or models anytime:
 
@@ -55,6 +52,53 @@ Override the DB path or models anytime:
 MEMWISE_DB_PATH=~/projects/myapp/.memwise.db memwise init
 MEMWISE_EMBED_MODEL=embeddinggemma MEMWISE_EMBED_DIM=768 memwise init
 ```
+
+---
+
+## Usage
+
+Once `memwise init` has registered the server, **you don't call anything manually** — your agent decides when to pull memory based on the tool descriptions. MemWise exposes three things over MCP (stdio, server name `memwise`):
+
+### Tools (the agent calls these)
+
+| Endpoint | When the agent uses it | What it returns |
+|---|---|---|
+| **`memwise_recent`** | *"catch me up", "where did we leave off", "what did we do last session"*, or the start of a new session | The last N turns + the latest session summary + active decisions. Time-ordered, no search. |
+| **`memwise_query`** | A specific lookup — *"why did we add retry to charge", "what's the role of service Y", "when did we last touch this file"* | Hybrid RAG search (vector + BM25 + graph proximity) over past turns, with code changes, the decision chain, and dependency edges. Reaches **old** sessions by meaning, not just recency. |
+
+Both are **read-only** and take an optional `projectPath` (absolute path) to scope results to one project, plus `limit` (1–50, `memwise_recent` only).
+
+### Prompt (you trigger this)
+
+| Endpoint | How you use it | What it does |
+|---|---|---|
+| **`/memwise`** | Type it in your agent (optionally with a query: `/memwise why did we drop Redis`) | Pulls project memory into the current turn. Blank → recent worklog; with a query → semantic recall. |
+
+### Manual / scripting
+
+You can also query the store directly from the terminal, independent of any agent:
+
+```bash
+memwise query "why did we add retry"     # one-off retrieval from the CLI
+memwise dashboard                         # observability UI at localhost:4242
+```
+
+---
+
+## Agent support
+
+MemWise captures every coding turn identically across agents — same transcript-on-disk pipeline, same store. The only difference is how each agent's hooks let MemWise build the **session summary**:
+
+| | Claude Code | Codex | Cursor |
+|---|---|---|---|
+| Turn capture | ✅ transcript at turn end | ✅ transcript at turn end | ✅ transcript at turn end |
+| MCP tools (`recent` / `query`) | ✅ | ✅ | ✅ |
+| Session summary source | post-compact recap **+** night-shift | night-shift | **night-shift only** |
+| First recap available | immediately after a `/compact`, then night-shift | after night-shift (~10 turns) | after night-shift (~10 turns) |
+
+**Why the difference:** Claude Code fires a `PostCompact` hook, so MemWise records the agent's own compaction summary instantly. Cursor exposes no post-compact event, so its session summary is built entirely by night-shift (Job 2) from the per-turn enriched context — which every agent captures equally. The practical effect is only at **cold start**: on a brand-new Cursor project the first recap appears after ~10 turns rather than at the first compaction. Lower `MEMWISE_EPISODIC_MIN_NEW_CHUNKS` to shorten that window.
+
+> Capture quality and retrieval are the same across all three — the post-compact recap is a Claude-only *bonus*, not a dependency.
 
 ---
 

@@ -1,4 +1,3 @@
-.env
 node_modules
 dist/
 memwise-spec.md
@@ -7,3 +6,4 @@ simulation.md
 am/
 eval/labels.*.json
 memory/
+config.bat
